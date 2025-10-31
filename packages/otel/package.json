@@ -1,0 +1,60 @@
+{
+  "name": "@universal-kit/otel",
+  "version": "0.1.0",
+  "description": "OpenTelemetry protocol support for universal-kit",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jinbangyi/universal-kit.git",
+    "directory": "packages/otel"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "opentelemetry",
+    "otel",
+    "observability",
+    "tracing",
+    "metrics",
+    "logs"
+  ],
+  "scripts": {
+    "build": "tsc src/index.ts src/otel-provider.ts --outDir dist --declaration --target ES2022 --module CommonJS --moduleResolution node --esModuleInterop",
+    "dev": "tsc src/**/*.ts --outDir dist --declaration --target ES2022 --module CommonJS --moduleResolution node --esModuleInterop --watch",
+    "lint": "eslint src/**/*.ts",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "@universal-kit/core": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "@opentelemetry/api-logs": "^0.207.0",
+    "@opentelemetry/auto-instrumentations-node": "^0.66.0",
+    "@opentelemetry/exporter-logs-otlp-http": "^0.207.0",
+    "@opentelemetry/exporter-prometheus": "^0.207.0",
+    "@opentelemetry/exporter-metrics-otlp-http": "^0.207.0",
+    "@opentelemetry/exporter-trace-otlp-http": "^0.207.0",
+    "@opentelemetry/resources": "^2.2.0",
+    "@opentelemetry/sdk-logs": "^0.207.0",
+    "@opentelemetry/sdk-metrics": "^2.2.0",
+    "@opentelemetry/sdk-node": "^0.207.0",
+    "@opentelemetry/semantic-conventions": "^1.37.0"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "@types/node": "^20.0.0",
+    "openai": "^4.0.0"
+  }
+}

@@ -1,0 +1,57 @@
+{
+  "name": "@universal-kit/metrics-client",
+  "version": "0.1.0",
+  "description": "OpenTelemetry-based metrics HTTP client wrapper with API provider monitoring and enhanced tracing",
+  "main": "dist/index.js",
+  "module": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "type": "module",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jinbangyi/universal-kit.git",
+    "directory": "packages/metrics-client"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "http",
+    "client",
+    "axios",
+    "metrics",
+    "opentelemetry",
+    "otel",
+    "observability",
+    "tracing",
+    "api-monitoring",
+    "provider-metrics"
+  ],
+  "scripts": {
+    "build": "tsc src/index.ts --outDir dist --declaration --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck",
+    "dev": "tsc src/**/*.ts --outDir dist --declaration --target ES2022 --module CommonJS --moduleResolution node --esModuleInterop --watch",
+    "lint": "eslint src/**/*.ts",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "@universal-kit/core": "workspace:*",
+    "@universal-kit/logger": "workspace:*",
+    "@opentelemetry/api": "^1.9.0",
+    "axios": "^1.12.2"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "node-fetch": "^3.3.0",
+    "@types/node": "^20.0.0"
+  }
+}

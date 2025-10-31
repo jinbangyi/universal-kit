@@ -1,0 +1,47 @@
+{
+  "name": "@universal-kit/logger",
+  "version": "0.1.0",
+  "description": "Structured logger with metadata support for API usage tracking",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jinbangyi/universal-kit.git",
+    "directory": "packages/logger"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "logger",
+    "winston",
+    "structured-logging",
+    "observability"
+  ],
+  "scripts": {
+    "build": "tsc src/index.ts src/logger.ts --outDir dist --declaration --target ES2022 --module CommonJS --moduleResolution node --esModuleInterop",
+    "dev": "tsc src/**/*.ts --outDir dist --declaration --target ES2022 --module CommonJS --moduleResolution node --esModuleInterop --watch",
+    "lint": "eslint src/**/*.ts",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {
+    "@universal-kit/core": "workspace:*",
+    "winston": "^3.11.0",
+    "winston-daily-rotate-file": "^4.7.1"
+  },
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0",
+    "ts-jest": "^29.1.0",
+    "@types/node": "^20.0.0"
+  }
+}

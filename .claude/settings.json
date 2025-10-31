@@ -1,0 +1,11 @@
+{
+  "permissions": {
+    "allow": ["Bash(mkdir:*)", "Bash(find:*)", "Bash(cat:*)", "Bash(pnpm:*)"],
+    "deny": [],
+    "ask": []
+  },
+  "env": {
+    // default 25000
+    "MAX_MCP_OUTPUT_TOKENS": "50000"
+  }
+}

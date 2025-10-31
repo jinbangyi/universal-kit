@@ -1,0 +1,6 @@
+docs/developer/
+debug/
+node_modules/
+dist/
+.turbo/
+tsconfig.tsbuildinfo

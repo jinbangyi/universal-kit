@@ -1,0 +1,282 @@
+import {
+  diag,
+  DiagConsoleLogger,
+  DiagLogLevel,
+  trace,
+  SpanKind,
+  SpanStatusCode,
+} from '@opentelemetry/api';
+import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
+import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
+import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http';
+import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
+import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
+import {
+  defaultResource,
+  resourceFromAttributes,
+} from '@opentelemetry/resources';
+import type { Resource } from '@opentelemetry/resources';
+import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
+import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
+import { NodeSDK } from '@opentelemetry/sdk-node';
+import {
+  ATTR_SERVICE_NAME,
+  ATTR_SERVICE_VERSION,
+} from '@opentelemetry/semantic-conventions';
+
+function getEnvNumber(name: string, fallback: number): number {
+  const raw = process.env[name];
+  if (!raw) {
+    return fallback;
+  }
+  const value = Number(raw);
+  return Number.isFinite(value) && value > 0 ? value : fallback;
+}
+
+const serviceName = process.env.OTEL_SERVICE_NAME || 'universal-kit';
+const serviceVersion =
+  process.env.OTEL_SERVICE_VERSION || process.env.npm_package_version;
+const metricExportTimeout = getEnvNumber('OTEL_METRIC_EXPORT_TIMEOUT', 30000);
+const prometheusPort = getEnvNumber('OTEL_PROMETHEUS_PORT', 9000);
+
+const globalSdkKey = Symbol.for(`${serviceName}.telemetry.sdk`);
+const globalShutdownKey = Symbol.for(
+  `${serviceName}.telemetry.shutdown-registered`
+);
+
+type GlobalTelemetry = typeof globalThis & {
+  [globalSdkKey]?: NodeSDK;
+  [globalShutdownKey]?: boolean;
+};
+
+const telemetryGlobals = globalThis as GlobalTelemetry;
+
+function configureDiagnostics() {
+  const level = (process.env.OTEL_LOG_LEVEL || '').toUpperCase();
+  const levelMapping: Record<string, DiagLogLevel> = {
+    ALL: DiagLogLevel.ALL,
+    VERBOSE: DiagLogLevel.VERBOSE,
+    DEBUG: DiagLogLevel.DEBUG,
+    INFO: DiagLogLevel.INFO,
+    WARN: DiagLogLevel.WARN,
+    ERROR: DiagLogLevel.ERROR,
+    NONE: DiagLogLevel.NONE,
+  };
+  const selectedLevel = levelMapping[level] ?? DiagLogLevel.INFO;
+  diag.setLogger(new DiagConsoleLogger(), selectedLevel);
+}
+
+function buildResource(): Resource {
+  const resourceAttributes: Record<string, string> = {
+    [ATTR_SERVICE_NAME]: serviceName,
+  };
+
+  if (serviceVersion) {
+    resourceAttributes[ATTR_SERVICE_VERSION] = serviceVersion;
+  }
+
+  return defaultResource().merge(resourceFromAttributes(resourceAttributes));
+}
+
+function registerProcessShutdown(sdk: NodeSDK) {
+  if (telemetryGlobals[globalShutdownKey]) {
+    return;
+  }
+
+  const shutdown = async (reason: string) => {
+    try {
+      await sdk.shutdown();
+    } catch (err) {
+      diag.error(
+        `Failed to shutdown OpenTelemetry SDK on ${reason}`,
+        err as Error
+      );
+    }
+  };
+
+  process.on('beforeExit', () => void shutdown('beforeExit'));
+  process.on('SIGINT', () => void shutdown('SIGINT'));
+  process.on('SIGTERM', () => void shutdown('SIGTERM'));
+
+  telemetryGlobals[globalShutdownKey] = true;
+}
+
+function createSdk() {
+  if (telemetryGlobals[globalSdkKey]) {
+    return;
+  }
+
+  configureDiagnostics();
+
+  const otlpExporter = new OTLPMetricExporter();
+  const traceExporter = new OTLPTraceExporter();
+  const prometheusExporter = new PrometheusExporter({
+    prefix: serviceName.replace(/-/g, '_'),
+    port: prometheusPort,
+  });
+  const logExporter = new OTLPLogExporter();
+  const otlpReader = new PeriodicExportingMetricReader({
+    exporter: otlpExporter,
+    exportTimeoutMillis: metricExportTimeout,
+  });
+
+  const sdk = new NodeSDK({
+    resource: buildResource(),
+    traceExporter,
+    metricReaders: [otlpReader, prometheusExporter],
+    logRecordProcessor: new BatchLogRecordProcessor(logExporter),
+    instrumentations: [
+      getNodeAutoInstrumentations({
+        '@opentelemetry/instrumentation-dns': {
+          enabled: false,
+        },
+        '@opentelemetry/instrumentation-fs': {
+          enabled: false,
+        },
+        '@opentelemetry/instrumentation-openai': {
+          enabled: false,
+        },
+
+        '@opentelemetry/instrumentation-http': {
+          ignoreIncomingRequestHook: (req: { url?: string }) => {
+            const url = req.url || '';
+            const isHealthCheck =
+              url === '/health' || url.startsWith('/health/');
+            const isMetrics = url === '/metrics' || url.startsWith('/metrics/');
+            return isHealthCheck || isMetrics;
+          },
+        },
+        '@opentelemetry/instrumentation-undici': {
+          enabled: true,
+          requestHook: (span, request) => {
+            // https://signoz.io/docs/external-api-monitoring/overview/#how-it-works
+            span.setAttribute(
+              'telemetry.sdk.instrumentation',
+              'UndiciInstrumentation'
+            );
+            span.setAttribute('net.peer.name', request.origin);
+            span.setAttribute('http.url', request.origin + request.path);
+            span.setAttribute('http.target', request.path);
+          },
+          responseHook: (span, response) => {
+            // https://signoz.io/docs/external-api-monitoring/overview/#how-it-works
+            span.setAttribute(
+              'telemetry.sdk.instrumentation',
+              'UndiciInstrumentation'
+            );
+            span.setAttribute('net.peer.name', response.request.origin);
+            span.setAttribute(
+              'http.url',
+              response.request.origin + response.request.path
+            );
+            span.setAttribute('http.target', response.request.path);
+          },
+        },
+      }),
+    ],
+  });
+
+  Promise.resolve(sdk.start())
+    .then(() => diag.debug('OpenTelemetry SDK successfully started'))
+    .catch(err => diag.error('OpenTelemetry SDK failed to start', err));
+
+  registerProcessShutdown(sdk);
+  telemetryGlobals[globalSdkKey] = sdk;
+}
+
+export class OtelProvider {
+  private tracer = trace.getTracer(serviceName, '0.1.0');
+
+  start(): void {
+    // SDK is already started by createSdk
+    createSdk();
+  }
+
+  stop(): Promise<void> {
+    // Get the global SDK and shut it down
+    const sdk = telemetryGlobals[globalSdkKey];
+    if (sdk) {
+      return sdk.shutdown();
+    }
+    return Promise.resolve();
+  }
+
+  createSpan(
+    name: string,
+    kind: SpanKind = SpanKind.INTERNAL,
+    attributes?: Record<string, any>
+  ) {
+    return this.tracer.startSpan(name, {
+      kind,
+      attributes: {
+        ...attributes,
+        'service.name': serviceName,
+      },
+    });
+  }
+
+  recordFunctionCall(
+    functionName: string,
+    className: string,
+    duration: number,
+    error?: Error,
+    metadata?: Record<string, any>
+  ) {
+    const span = this.createSpan(
+      `${className}.${functionName}`,
+      SpanKind.INTERNAL,
+      {
+        'function.name': functionName,
+        'class.name': className,
+        duration_ms: duration,
+        ...metadata,
+      }
+    );
+
+    try {
+      if (error) {
+        span.recordException(error);
+        span.setStatus({
+          code: SpanStatusCode.ERROR,
+          message: error.message,
+        });
+      } else {
+        span.setStatus({
+          code: SpanStatusCode.OK,
+        });
+      }
+    } finally {
+      span.end();
+    }
+  }
+
+  async withSpan<T>(
+    name: string,
+    fn: (span: any) => Promise<T>,
+    kind: SpanKind = SpanKind.INTERNAL,
+    attributes?: Record<string, any>
+  ): Promise<T> {
+    const span = this.createSpan(name, kind, attributes);
+
+    try {
+      const result = await fn(span);
+      span.setStatus({
+        code: SpanStatusCode.OK,
+      });
+      return result;
+    } catch (error) {
+      const errorObj =
+        error instanceof Error ? error : new Error('Unknown error');
+      span.recordException(errorObj);
+      span.setStatus({
+        code: SpanStatusCode.ERROR,
+        message: errorObj.message,
+      });
+      throw errorObj;
+    } finally {
+      span.end();
+    }
+  }
+}
+
+export const defaultOtelProvider = new OtelProvider();

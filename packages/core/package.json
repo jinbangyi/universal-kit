@@ -1,0 +1,41 @@
+{
+  "name": "@universal-kit/core",
+  "version": "0.1.0",
+  "description": "Core types and utilities for universal-kit",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/jinbangyi/universal-kit.git",
+    "directory": "packages/core"
+  },
+  "publishConfig": {
+    "access": "public"
+  },
+  "files": [
+    "dist",
+    "README.md"
+  ],
+  "keywords": [
+    "typescript",
+    "utilities",
+    "types"
+  ],
+  "scripts": {
+    "build": "tsc src/index.ts --outDir dist --declaration --target ES2022 --module CommonJS --moduleResolution node",
+    "dev": "tsc src/index.ts --outDir dist --declaration --target ES2022 --module CommonJS --moduleResolution node --watch",
+    "lint": "eslint src/**/*.ts",
+    "test": "jest",
+    "test:watch": "jest --watch",
+    "test:coverage": "jest --coverage",
+    "clean": "rm -rf dist node_modules"
+  },
+  "dependencies": {},
+  "devDependencies": {
+    "typescript": "^5.3.0",
+    "jest": "^29.7.0",
+    "@types/jest": "^29.5.0",
+    "ts-jest": "^29.1.0"
+  }
+}
