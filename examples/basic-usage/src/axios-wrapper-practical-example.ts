@@ -7,6 +7,48 @@
 
 import { AxiosWrapper, AxiosWrapperRequestConfig } from '@universal-kit/metrics-client';
 
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null;
+};
+
+interface MetricsDetails {
+  requestId?: string;
+  duration?: number;
+  statusCode?: number;
+  error?: { message?: string };
+}
+
+const getErrorMetrics = (error: unknown): MetricsDetails | undefined => {
+  if (isRecord(error) && '_metrics' in error) {
+    const metrics = (error as { _metrics?: unknown })._metrics;
+    if (isRecord(metrics)) {
+      return metrics as MetricsDetails;
+    }
+  }
+  return undefined;
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return String(error);
+};
+
+const getErrorResponseData = (error: unknown): unknown => {
+  if (!isRecord(error) || !('response' in error)) {
+    return undefined;
+  }
+  const response = (error as { response?: unknown }).response;
+  if (!isRecord(response)) {
+    return undefined;
+  }
+  return (response as { data?: unknown }).data;
+};
+
 // ============================================================================
 // TYPE DEFINITIONS
 // ============================================================================
@@ -493,30 +535,35 @@ async function ecommerceWorkflow(): Promise<void> {
     // 3. Get product details
     if (searchResults.data.length > 0) {
       const firstProduct = searchResults.data[0];
-      console.log('\n3. Getting product details...');
-      const productDetails = await apiClient.getProduct(firstProduct.id);
-      console.log('Product details:', productDetails);
 
-      // 4. Create an order
-      console.log('\n4. Creating order...');
-      const orderData = {
-        customerId: 'customer-123',
-        items: [
-          {
-            productId: firstProduct.id,
-            quantity: 1,
-            price: firstProduct.price,
-          },
-        ],
-      };
-      const order = await apiClient.createOrder(orderData);
-      console.log('Order created:', order);
+      if (!firstProduct) {
+        console.log('No products returned, skipping detailed workflow steps.');
+      } else {
+        console.log('\n3. Getting product details...');
+        const productDetails = await apiClient.getProduct(firstProduct.id);
+        console.log('Product details:', productDetails);
 
-      // 5. Get API metrics
-      console.log('\n5. API Metrics:');
-      const metrics = apiClient.getMetrics();
-      console.log('Provider metrics available:', !!metrics.providerMetrics);
-      console.log('Request tracer available:', !!metrics.requestTracer);
+        // 4. Create an order
+        console.log('\n4. Creating order...');
+        const orderData = {
+          customerId: 'customer-123',
+          items: [
+            {
+              productId: firstProduct.id,
+              quantity: 1,
+              price: firstProduct.price,
+            },
+          ],
+        };
+        const order = await apiClient.createOrder(orderData);
+        console.log('Order created:', order);
+
+        // 5. Get API metrics
+        console.log('\n5. API Metrics:');
+        const metrics = apiClient.getMetrics();
+        console.log('Provider metrics available:', !!metrics.providerMetrics);
+        console.log('Request tracer available:', !!metrics.requestTracer);
+      }
     }
 
     // 6. Health check
@@ -545,11 +592,11 @@ async function demonstrateErrorHandling(): Promise<void> {
   // Try to access a non-existent endpoint
   try {
     await apiClient.getProduct('non-existent-id');
-  } catch (error) {
+  } catch (error: unknown) {
     console.log('✅ Error caught and handled gracefully');
 
     // Log error metrics if available
-    const errorMetrics = (error as any)._metrics;
+    const errorMetrics = getErrorMetrics(error);
     if (errorMetrics) {
       console.log('Error metrics:', {
         requestId: errorMetrics.requestId,
@@ -566,9 +613,11 @@ async function demonstrateErrorHandling(): Promise<void> {
       customerId: '', // Invalid: empty customer ID
       items: [], // Invalid: empty items
     });
-  } catch (error) {
+  } catch (error: unknown) {
     console.log('✅ Validation error caught');
-    console.log('Error details:', (error as any).response?.data || error.message);
+    const responseData = getErrorResponseData(error);
+    const message = getErrorMessage(error);
+    console.log('Error details:', responseData ?? message);
   }
 }
 

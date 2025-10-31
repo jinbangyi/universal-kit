@@ -35,7 +35,7 @@ function getEnvNumber(name: string, fallback: number): number {
 
 const serviceName = process.env.OTEL_SERVICE_NAME || 'universal-kit';
 const serviceVersion =
-  process.env.OTEL_SERVICE_VERSION || process.env.npm_package_version;
+  process.env.OTEL_SERVICE_VERSION || '0.0.1';
 const metricExportTimeout = getEnvNumber('OTEL_METRIC_EXPORT_TIMEOUT', 30000);
 const prometheusPort = getEnvNumber('OTEL_PROMETHEUS_PORT', 9000);
 

@@ -35,7 +35,6 @@
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
-    "@universal-kit/core": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "@opentelemetry/api-logs": "^0.207.0",
     "@opentelemetry/auto-instrumentations-node": "^0.66.0",

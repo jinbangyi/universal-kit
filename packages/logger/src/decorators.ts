@@ -1,5 +1,11 @@
-import { DecoratorConfig } from '@universal-kit/core';
 import { Logger } from './logger';
+
+export interface DecoratorConfig {
+  logRequests?: boolean;
+  logResponses?: boolean;
+  includeArgs?: boolean;
+  customMetadata?: Record<string, any>;
+}
 
 export function trackFunction(config: DecoratorConfig = {}) {
   return function (

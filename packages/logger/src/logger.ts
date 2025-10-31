@@ -1,18 +1,23 @@
+import { logs, SeverityNumber, Logger as OtelLogger } from '@opentelemetry/api-logs';
+import type { Attributes, AttributeValue } from '@opentelemetry/api';
 import winston from 'winston';
-import DailyRotateFile from 'winston-daily-rotate-file';
 
 export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+const serviceName = process.env.OTEL_SERVICE_NAME || 'universal-kit';
+const serviceVersion = process.env.OTEL_SERVICE_VERSION || '0.0.1';
 
 export interface LoggerConfig {
   library: string;
-  level?: LogLevel; // Default: 'info'
-  includeMetadata?: boolean; // Default: true
+  level?: LogLevel;
+  includeMetadata?: boolean;
   customFields?: Record<string, any>;
+  enableOtel?: boolean;
+  otelLoggerName?: string;
+  otelLoggerVersion?: string;
 }
 
-// Define interfaces for type safety
 interface LogData {
-  library?: string;
+  library: string;
   requestId?: string;
   [key: string]: any;
 }
@@ -23,21 +28,20 @@ interface WinstonInfo {
   message?: string;
   metadata?: {
     library?: string;
-    function?: string;
     requestId?: string;
     [key: string]: any;
   };
   [key: string]: any;
 }
 
-// Custom Winston format for structured logging with metadata
 const universalKitFormat = winston.format.combine(
-  winston.format.timestamp(),
+  winston.format.timestamp({
+    format: 'YYYY-MM-DDTHH:mm:ssZ',
+  }),
   winston.format.errors({ stack: true }),
   winston.format.metadata({
     fillExcept: ['message', 'level', 'timestamp', 'label'],
   }),
-  winston.format.json(),
   winston.format.printf(info => {
     const winstonInfo = info as WinstonInfo;
     const timestamp = winstonInfo.timestamp;
@@ -45,168 +49,88 @@ const universalKitFormat = winston.format.combine(
     const message = winstonInfo.message;
     const metadata = winstonInfo.metadata || {};
     const library = metadata.library || 'unknown';
-    const function_ = metadata.function || 'unknown';
     const requestId = metadata.requestId;
 
-    // Build metadata string
     let metadataStr = '';
-    const metaObj: any = { ...metadata };
+    const metaObj: Record<string, any> = { ...metadata };
     delete metaObj.library;
-    delete metaObj.function;
     delete metaObj.requestId;
 
     if (Object.keys(metaObj).length > 0) {
       metadataStr = ` ${JSON.stringify(metaObj)}`;
     }
 
-    // Format with or without request ID
     const levelStr = level?.toUpperCase() || 'INFO';
     if (requestId) {
-      return `[${timestamp}] ${levelStr} [${requestId}] ${message} (library: ${library}, function: ${function_})${metadataStr}`;
-    } else {
-      return `[${timestamp}] ${levelStr} ${message} (library: ${library}, function: ${function_})${metadataStr}`;
+      return `[${timestamp}] ${levelStr} [${library}:${requestId}] ${message}${metadataStr}`;
     }
+    return `[${timestamp}] ${levelStr} [${library}] ${message}${metadataStr}`;
   })
 );
 
-// Console format for development
-const consoleFormat = winston.format.combine(
-  winston.format.colorize(),
-  winston.format.timestamp(),
-  winston.format.printf(info => {
-    const winstonInfo = info as WinstonInfo;
-    const timestamp = winstonInfo.timestamp;
-    const level = winstonInfo.level;
-    const message = winstonInfo.message;
-    const metadata = winstonInfo.metadata || {};
-    const library = metadata.library || 'unknown';
-    const function_ = metadata.function || 'unknown';
-    const requestId = metadata.requestId;
-
-    let metadataStr = '';
-    const metaObj: any = { ...metadata };
-    delete metaObj.library;
-    delete metaObj.function;
-    delete metaObj.requestId;
-
-    if (Object.keys(metaObj).length > 0) {
-      metadataStr = ` ${JSON.stringify(metaObj)}`;
-    }
-
-    const levelStr = level || 'INFO';
-    if (requestId) {
-      return `${levelStr} [${timestamp}] [${requestId}] ${message} (library: ${library}, function: ${function_})${metadataStr}`;
-    } else {
-      return `${levelStr} [${timestamp}] ${message} (library: ${library}, function: ${function_})${metadataStr}`;
-    }
-  })
-);
 
 export class Logger {
   private winston: winston.Logger;
   private config: Required<LoggerConfig>;
+  private otelLogger?: OtelLogger;
 
   constructor(config: LoggerConfig) {
     this.config = {
-      level: 'info',
-      includeMetadata: true,
-      customFields: {},
-      ...config,
+      library: config.library,
+      level: config.level || 'info',
+      includeMetadata: config.includeMetadata ?? true,
+      customFields: { ...config.customFields },
+      enableOtel: config.enableOtel ?? true,
+      otelLoggerName: config.otelLoggerName || serviceName,
+      otelLoggerVersion: config.otelLoggerVersion || serviceVersion,
     };
 
-    // Create Winston transports
     const transports: winston.transport[] = [];
 
-    // Console transport for development
     transports.push(
       new winston.transports.Console({
-        format: consoleFormat,
+        format: universalKitFormat,
         level: this.config.level,
       })
     );
 
-    // Create Winston logger
     this.winston = winston.createLogger({
       level: this.config.level,
       transports,
-      format: universalKitFormat,
       defaultMeta: this.config.customFields,
     });
+
+    this.initializeOtel();
   }
 
-  private createLogData(
-    additional?: Record<string, any>
-  ): LogData {
-    const logData: LogData = {
-      library: this.config.library,
-      ...this.config.customFields,
-    };
-
-    if (additional && this.config.includeMetadata) {
-      Object.assign(logData, additional);
-    }
-
-    return logData;
-  }
-
-  private shouldLog(level: LogLevel): boolean {
-    const levels: Record<LogLevel, number> = {
-      debug: 0,
-      info: 1,
-      warn: 2,
-      error: 3,
-    };
-
-    return levels[level] >= levels[this.config.level];
-  }
-
-  debug(
-    message: string,
-    additional?: Record<string, any>
-  ): void {
+  debug(message: string, metadata?: Record<string, any>): void {
     if (!this.shouldLog('debug')) return;
-
-    const logData = this.createLogData(additional);
+    const logData = this.createLogData(metadata);
     this.winston.debug(message, logData);
+    this.emitOtelLog('debug', message, logData);
   }
 
-  info(
-    message: string,
-    additional?: Record<string, any>
-  ): void {
+  info(message: string, metadata?: Record<string, any>): void {
     if (!this.shouldLog('info')) return;
-
-    const logData = this.createLogData(additional);
+    const logData = this.createLogData(metadata);
     this.winston.info(message, logData);
+    this.emitOtelLog('info', message, logData);
   }
 
-  warn(
-    message: string,
-    additional?: Record<string, any>
-  ): void {
+  warn(message: string, metadata?: Record<string, any>): void {
     if (!this.shouldLog('warn')) return;
-
-    const logData = this.createLogData(additional);
+    const logData = this.createLogData(metadata);
     this.winston.warn(message, logData);
+    this.emitOtelLog('warn', message, logData);
   }
 
-  error(
-    message: string,
-    error?: Error,
-    additional?: Record<string, any>
-  ): void {
+  error(message: string, error?: Error, metadata?: Record<string, any>): void {
     if (!this.shouldLog('error')) return;
-
-    const logData = this.createLogData(additional);
-
-    if (error) {
-      this.winston.error(message, { ...logData, error });
-    } else {
-      this.winston.error(message, logData);
-    }
+    const logData = this.createLogData(metadata, error);
+    this.winston.error(message, logData);
+    this.emitOtelLog('error', message, logData, error);
   }
 
-  // Advanced Winston features
   addTransport(transport: winston.transport): void {
     this.winston.add(transport);
   }
@@ -219,25 +143,6 @@ export class Logger {
     return this.winston.child(metadata);
   }
 
-  // Query logs (useful for testing and debugging)
-  async query(options: winston.QueryOptions): Promise<any[]> {
-    return new Promise((resolve, reject) => {
-      this.winston.query(options, (err, results) => {
-        if (err) {
-          reject(err);
-        } else {
-          resolve(results);
-        }
-      });
-    });
-  }
-
-  // Stream logs (useful for real-time monitoring)
-  stream(options: any): NodeJS.ReadableStream {
-    return this.winston.stream(options);
-  }
-
-  // Configure log level at runtime
   setLevel(level: LogLevel): void {
     this.config.level = level;
     this.winston.level = level;
@@ -246,24 +151,144 @@ export class Logger {
     });
   }
 
-  // Get current configuration
   getConfig(): Readonly<LoggerConfig> {
-    return { ...this.config };
+    return Object.freeze({ ...this.config });
   }
 
-  // Get underlying Winston logger for advanced usage
   getWinstonLogger(): winston.Logger {
     return this.winston;
   }
 
-  // Close all transports and clean up
   close(): void {
     this.winston.close();
   }
+
+  private initializeOtel(): void {
+    if (!this.config.enableOtel) {
+      return;
+    }
+    this.otelLogger = logs.getLogger(
+      this.config.otelLoggerName,
+      this.config.otelLoggerVersion
+    );
+  }
+
+  private shouldLog(level: LogLevel): boolean {
+    const levels: Record<LogLevel, number> = {
+      debug: 0,
+      info: 1,
+      warn: 2,
+      error: 3,
+    };
+    return levels[level] >= levels[this.config.level];
+  }
+
+  private createLogData(
+    metadata?: Record<string, any>,
+    error?: Error
+  ): LogData {
+    const logData: LogData = {
+      ...this.config.customFields,
+      // Priority: config.library first, then metadata.library if provided
+      library: metadata?.library || this.config.library,
+      requestId: metadata?.requestId,
+    };
+
+    if (error) {
+      logData.error = {
+        name: error.name,
+        message: error.message,
+      };
+    }
+
+    if (this.config.includeMetadata && metadata) {
+      for (const [key, value] of Object.entries(metadata)) {
+        if (key === 'library' || key === 'requestId') {
+          continue;
+        }
+        logData[key] = value;
+      }
+    }
+
+    return logData;
+  }
+
+  private emitOtelLog(level: LogLevel, message: string, logData: LogData, error?: Error): void {
+    if (!this.otelLogger) {
+      return;
+    }
+
+    const attributes = this.convertToAttributes(logData, error);
+    this.otelLogger.emit({
+      timestamp: Date.now(),
+      body: message,
+      severityText: level.toUpperCase(),
+      attributes,
+    });
+  }
+
+  private convertToAttributes(logData: LogData, error?: Error): Attributes {
+    const attributes: Attributes = {};
+
+    for (const [key, value] of Object.entries(logData)) {
+      if (value === undefined) {
+        continue;
+      }
+      attributes[key] = this.normalizeAttributeValue(value);
+    }
+
+    if (error) {
+      attributes['error.name'] = error.name;
+      attributes['error.message'] = error.message;
+      if (error.stack) {
+        attributes['error.stack'] = error.stack;
+      }
+    }
+
+    return attributes;
+  }
+
+  private normalizeAttributeValue(value: any): AttributeValue {
+    if (value === null || value === undefined) {
+      return 'null';
+    }
+
+    if (typeof value === 'string' || typeof value === 'number' || typeof value === 'boolean') {
+      return value;
+    }
+
+    if (value instanceof Date) {
+      return value.toISOString();
+    }
+
+    if (Array.isArray(value)) {
+      const simple = value.filter(
+        item => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean'
+      );
+
+      if (simple.length === value.length && simple.length > 0) {
+        if (simple.every(item => typeof item === 'string')) {
+          return simple as string[];
+        }
+        if (simple.every(item => typeof item === 'number')) {
+          return simple as number[];
+        }
+        if (simple.every(item => typeof item === 'boolean')) {
+          return simple as boolean[];
+        }
+      }
+
+      return JSON.stringify(value);
+    }
+
+    if (typeof value === 'object') {
+      return JSON.stringify(value);
+    }
+
+    return String(value) as string;
+  }
 }
 
-// Create a default logger instance
-export const defaultLogger = new Logger({library: 'universal-kit'});
+export const defaultLogger = new Logger({ library: 'universal-kit' });
 
-// Export Winston for advanced usage
-export { winston, DailyRotateFile };
+export { winston };

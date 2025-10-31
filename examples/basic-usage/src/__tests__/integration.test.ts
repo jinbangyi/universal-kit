@@ -1,6 +1,15 @@
 // Mock fetch for testing
 global.fetch = jest.fn();
 
+const createMockResponse = <T>(data: T, overrides: Partial<Response> = {}): Response => {
+  return {
+    ...overrides,
+    ok: overrides.ok ?? true,
+    status: overrides.status ?? 200,
+    json: overrides.json ?? jest.fn().mockResolvedValue(data),
+  } as unknown as Response;
+};
+
 // Mock AbortSignal.timeout
 if (!global.AbortSignal.timeout) {
   global.AbortSignal.timeout = jest.fn(() => {
@@ -33,25 +42,24 @@ describe('Integration Tests', () => {
   it('should demonstrate all components working together', async () => {
     // Mock successful API responses
     mockFetch
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: jest.fn().mockResolvedValue({
+      .mockResolvedValueOnce(
+        createMockResponse({
           id: 1,
           name: 'Leanne Graham',
           email: 'Sincere@april.biz',
-        }),
-      })
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 201,
-        json: jest.fn().mockResolvedValue({
-          id: 101,
-          title: 'Test Post from Universal Kit',
-          body: 'This is a test post created using the Universal Kit library.',
-          userId: 1,
-        }),
-      });
+        })
+      )
+      .mockResolvedValueOnce(
+        createMockResponse(
+          {
+            id: 101,
+            title: 'Test Post from Universal Kit',
+            body: 'This is a test post created using the Universal Kit library.',
+            userId: 1,
+          },
+          { status: 201 }
+        )
+      );
 
     // Import and test the main example
     const exampleModule = require('../index');
@@ -132,11 +140,7 @@ describe('Integration Tests', () => {
     );
 
     // Mock successful response
-    mockFetch.mockResolvedValueOnce({
-      ok: true,
-      status: 200,
-      json: jest.fn().mockResolvedValue({ success: true }),
-    });
+    mockFetch.mockResolvedValueOnce(createMockResponse({ success: true }));
 
     const result = await client.get('/test');
 

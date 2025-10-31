@@ -41,7 +41,6 @@
     "clean": "rm -rf dist node_modules"
   },
   "dependencies": {
-    "@universal-kit/core": "workspace:*",
     "@universal-kit/logger": "workspace:*",
     "@opentelemetry/api": "^1.9.0",
     "axios": "^1.12.2"

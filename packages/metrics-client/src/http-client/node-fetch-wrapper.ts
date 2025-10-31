@@ -13,6 +13,7 @@ export class NodeFetchWrapper extends BaseHttpClient {
     config = {
       getApiKey: (options: RequestInit) => this.getApiKeyFromOptions(options),
       ...config,
+      provider: `${config.provider}:${NodeFetchWrapper.name}`,
     };
     super(config, logger);
   }

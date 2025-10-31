@@ -103,6 +103,7 @@ export class RequestTracer {
         this.logger.error(
           `Request failed: ${event.method} ${event.url}`,
           event.error || new Error('Unknown error'),
+          { requestId: event.requestId }
         );
         break;
 
@@ -138,13 +139,14 @@ export class RequestTracer {
     };
 
     this.logger.error(
-      `Detailed failed request information`,
+      `Detailed failed request`,
       error,
+      { requestId },
     );
 
     // Log the detailed error data as structured metadata
     this.logger.info(
-      `Failed request details for ${requestId}`,
+      `Failed request details:`,
       errorDetails,
     );
   }

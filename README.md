@@ -13,7 +13,6 @@ Universal Kit provides a comprehensive suite of tools for measuring and observin
 
 ## Packages
 
-- `@universal-kit/core` - Core types and interfaces
 - `@universal-kit/logger` - **Winston-based** structured logger with metadata and advanced features
 - `@universal-kit/http-client` - HTTP client with automatic measurement
 - `@universal-kit/decorators` - Decorators for API usage tracking

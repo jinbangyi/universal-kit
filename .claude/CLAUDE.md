@@ -21,7 +21,6 @@ This is a **production-ready TypeScript monorepo** for API usage observation and
 
 The repository provides:
 
-- **@universal-kit/core**: Core types and interfaces (v0.1.0)
 - **@universal-kit/logger**: Winston-based structured logging with metadata (v0.1.0)
 - **@universal-kit/http-client**: HTTP client wrapper with automatic API usage measurement (v0.1.0)
 - **@universal-kit/decorators**: Decorator system for API usage tracking (v0.1.0)

@@ -26,6 +26,7 @@ export class AxiosWrapper extends BaseHttpClient {
     const baseConfig: BaseWrapperConfig = {
       getApiKey: (options: InternalAxiosRequestConfig) => this.getApiKeyFromConfig(options),
       ...config,
+      provider: `${config.provider}:${AxiosWrapper.name}`,
     };
 
     super(baseConfig, logger);
@@ -36,8 +37,8 @@ export class AxiosWrapper extends BaseHttpClient {
     this.setupInterceptors();
   }
 
-  private getApiKeyFromConfig(config: AxiosRequestConfig): string {
-    const apikey = config.headers ?
+  private getApiKeyFromConfig(config?: AxiosRequestConfig): string {
+    const apikey = config?.headers ?
       (config.headers as Record<string, string>)[this.config.apiKeyHeader] :
       undefined;
     if (apikey) return apikey;

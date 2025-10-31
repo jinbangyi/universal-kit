@@ -7,6 +7,55 @@
 
 import { AxiosWrapper, AxiosWrapperRequestConfig } from '@universal-kit/metrics-client';
 
+const isRecord = (value: unknown): value is Record<string, unknown> => {
+  return typeof value === 'object' && value !== null;
+};
+
+interface MetricsDetails {
+  requestId?: string;
+  provider?: string;
+  method?: string;
+  url?: string;
+  statusCode?: number;
+  duration?: number;
+  requestSize?: number;
+  responseSize?: number;
+  timestamp?: number;
+  error?: { message?: string };
+}
+
+const getErrorMetrics = (error: unknown): MetricsDetails | undefined => {
+  if (isRecord(error) && '_metrics' in error) {
+    const metrics = (error as { _metrics?: unknown })._metrics;
+    if (isRecord(metrics)) {
+      return metrics as MetricsDetails;
+    }
+  }
+  return undefined;
+};
+
+const getErrorMessage = (error: unknown): string => {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === 'string') {
+    return error;
+  }
+  return String(error);
+};
+
+const isErrorWithResponse = (error: unknown): error is { response: Record<string, unknown> } => {
+  if (!isRecord(error) || !('response' in error)) {
+    return false;
+  }
+  const response = (error as { response?: unknown }).response;
+  return isRecord(response);
+};
+
+const isErrorWithRequest = (error: unknown): error is { request: unknown } => {
+  return isRecord(error) && 'request' in error;
+};
+
 // ============================================================================
 // BASIC SETUP EXAMPLES
 // ============================================================================
@@ -106,9 +155,12 @@ async function basicHttpRequests(): Promise<void> {
     await client.delete(`/users/${createResponse.data.id}`);
     console.log('User deleted successfully');
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Request failed:', error);
-    console.error('Metrics:', (error as any)._metrics);
+    const metrics = getErrorMetrics(error);
+    if (metrics) {
+      console.error('Metrics:', metrics);
+    }
   }
 }
 
@@ -153,7 +205,7 @@ async function requestWithCustomConfig(): Promise<void> {
     const response = await client.get<User[]>('/users', config);
     console.log('Paginated users:', response.data);
     console.log('Custom metrics:', (response as any)._metrics);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Custom request failed:', error);
   }
 }
@@ -194,17 +246,21 @@ async function demonstrateMetricsAccess(): Promise<void> {
     const requestTracer = client.getRequestTracer();
     console.log('Request Tracer:', requestTracer);
 
-  } catch (error) {
-    const errorMetrics = (error as any)._metrics;
-    console.log('Error Metrics:', {
-      requestId: errorMetrics.requestId,
-      provider: errorMetrics.provider,
-      method: errorMetrics.method,
-      url: errorMetrics.url,
-      duration: `${errorMetrics.duration}ms`,
-      error: errorMetrics.error?.message,
-      timestamp: new Date(errorMetrics.timestamp).toISOString(),
-    });
+  } catch (error: unknown) {
+    const errorMetrics = getErrorMetrics(error);
+    if (errorMetrics) {
+      console.log('Error Metrics:', {
+        requestId: errorMetrics.requestId,
+        provider: errorMetrics.provider,
+        method: errorMetrics.method,
+        url: errorMetrics.url,
+        duration: `${errorMetrics.duration ?? 0}ms`,
+        error: errorMetrics.error?.message,
+        timestamp: errorMetrics.timestamp ? new Date(errorMetrics.timestamp).toISOString() : undefined,
+      });
+    } else {
+      console.error('Metrics unavailable for error:', error);
+    }
   }
 }
 
@@ -222,30 +278,33 @@ async function demonstrateErrorHandling(): Promise<void> {
     // Request that will likely fail (non-existent endpoint)
     const response = await client.get('/non-existent-endpoint');
     console.log('Unexpected success:', response.data);
-  } catch (error) {
+  } catch (error: unknown) {
     // Access error metrics
-    const errorMetrics = (error as any)._metrics;
-    console.log('Error caught with metrics:', {
-      requestId: errorMetrics.requestId,
-      provider: errorMetrics.provider,
-      method: errorMetrics.method,
-      url: errorMetrics.url,
-      duration: `${errorMetrics.duration}ms`,
-      error: errorMetrics.error?.message,
-      statusCode: errorMetrics.statusCode,
-    });
+    const errorMetrics = getErrorMetrics(error);
+    if (errorMetrics) {
+      console.log('Error caught with metrics:', {
+        requestId: errorMetrics.requestId,
+        provider: errorMetrics.provider,
+        method: errorMetrics.method,
+        url: errorMetrics.url,
+        duration: `${errorMetrics.duration ?? 0}ms`,
+        error: errorMetrics.error?.message,
+        statusCode: errorMetrics.statusCode,
+      });
+    }
 
     // Different types of errors
-    if (error.response) {
+    if (isErrorWithResponse(error)) {
+      const response = error.response as { status?: number; data?: unknown };
       // Server responded with error status
-      console.log('Server error status:', error.response.status);
-      console.log('Server error data:', error.response.data);
-    } else if (error.request) {
+      console.log('Server error status:', response.status);
+      console.log('Server error data:', response.data);
+    } else if (isErrorWithRequest(error)) {
       // Request was made but no response received
       console.log('Network error - no response received');
     } else {
       // Something else happened
-      console.log('Error message:', error.message);
+      console.log('Error message:', getErrorMessage(error));
     }
   }
 }
@@ -331,7 +390,7 @@ async function uploadFileWithProgress(): Promise<void> {
     const response = await client.post('/upload', formData, config);
     console.log('File uploaded successfully:', response.data);
     console.log('Upload metrics:', (response as any)._metrics);
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('File upload failed:', error);
   }
 }
@@ -368,7 +427,7 @@ async function parallelRequests(): Promise<void> {
 
     console.log(`Total duration: ${totalDuration}ms`);
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('Parallel requests failed:', error);
   }
 }
@@ -397,8 +456,8 @@ async function demonstrateRequestCancellation(): Promise<void> {
 
     const response = await requestPromise;
     console.log('Request completed:', response.data);
-  } catch (error) {
-    if (error.message === 'canceled') {
+  } catch (error: unknown) {
+    if (error instanceof Error && error.message === 'canceled') {
       console.log('Request was successfully cancelled');
     } else {
       console.error('Request failed:', error);
@@ -481,7 +540,7 @@ async function useApiClient(): Promise<void> {
     const metrics = apiClient.getMetrics();
     console.log('API metrics:', metrics);
 
-  } catch (error) {
+  } catch (error: unknown) {
     console.error('API client error:', error);
   }
 }
@@ -498,7 +557,7 @@ export async function runAllAxiosWrapperExamples(): Promise<void> {
 
   // Basic examples
   console.log('1. Basic setup examples...\n');
-  // await basicHttpRequests();
+  await basicHttpRequests();
 
   // Advanced examples
   console.log('2. Advanced configuration examples...\n');
