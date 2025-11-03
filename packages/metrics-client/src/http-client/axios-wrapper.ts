@@ -10,7 +10,7 @@ import { BaseHttpClient, BaseWrapperConfig, defaultApiKey } from './common';
 import { ApiMetrics } from '../typing';
 
 // Axios-compatible interfaces
-export interface AxiosWrapperRequestConfig extends AxiosRequestConfig {
+export interface AxiosWrapperRequestConfig<D = any> extends AxiosRequestConfig<D> {
   skipMetrics?: boolean;
 }
 
@@ -119,80 +119,6 @@ export class AxiosWrapper extends BaseHttpClient {
     return this.processRequestError(baseAttributes, url, error, startTime, null, requestSize,
       { url, method, headers: config?.headers || {}, body: config?.data },
     );
-  }
-
-
-  // Axios-compatible methods
-  async request<T = any>(
-    config: AxiosWrapperRequestConfig,
-  ): Promise<AxiosResponse<T>> {
-    return this.axiosInstance.request(config);
-  }
-
-  async get<T = any>(
-    url: string,
-    config?: AxiosWrapperRequestConfig,
-  ): Promise<AxiosResponse<T>> {
-    return this.axiosInstance.get(url, config);
-  }
-
-  async post<T = any>(
-    url: string,
-    data?: any,
-    config?: AxiosWrapperRequestConfig,
-  ): Promise<AxiosResponse<T>> {
-    return this.axiosInstance.post(url, data, config);
-  }
-
-  async put<T = any>(
-    url: string,
-    data?: any,
-    config?: AxiosWrapperRequestConfig,
-  ): Promise<AxiosResponse<T>> {
-    return this.axiosInstance.put(url, data, config);
-  }
-
-  async patch<T = any>(
-    url: string,
-    data?: any,
-    config?: AxiosWrapperRequestConfig,
-  ): Promise<AxiosResponse<T>> {
-    return this.axiosInstance.patch(url, data, config);
-  }
-
-  async delete<T = any>(
-    url: string,
-    config?: AxiosWrapperRequestConfig,
-  ): Promise<AxiosResponse<T>> {
-    return this.axiosInstance.delete(url, config);
-  }
-
-  async head<T = any>(
-    url: string,
-    config?: AxiosWrapperRequestConfig,
-  ): Promise<AxiosResponse<T>> {
-    return this.axiosInstance.head(url, config);
-  }
-
-  async options<T = any>(
-    url: string,
-    config?: AxiosWrapperRequestConfig,
-  ): Promise<AxiosResponse<T>> {
-    return this.axiosInstance.options(url, config);
-  }
-
-  // Access to Axios instance properties
-  get defaults() {
-    return this.axiosInstance.defaults;
-  }
-
-  get interceptors() {
-    return this.axiosInstance.interceptors;
-  }
-
-  // Utility methods
-  getUri(config?: AxiosWrapperRequestConfig): string {
-    return this.axiosInstance.getUri(config);
   }
 
   // Get underlying Axios instance for advanced usage

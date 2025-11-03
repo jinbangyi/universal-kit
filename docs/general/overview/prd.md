@@ -2,6 +2,10 @@
 
 this repo will use monorepo to organize diff purpose lib which is common used
 
+## Principle
+
+how user use this lib should NO MORE than 3 steps(<= 3 steps)
+
 ## Stories
 
 - user can meature external api usage
@@ -23,3 +27,8 @@ this repo will use monorepo to organize diff purpose lib which is common used
   - trace, logs: 
     - user can see each request event
     - user can see the request detail of each failed request
+
+- user can easy create custom full otel
+  - create a wrapper
+  - define metrics, inject metrics to the code
+  - auto add trace, console logs, otel logs

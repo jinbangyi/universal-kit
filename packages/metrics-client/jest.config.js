@@ -1,4 +1,4 @@
-module.exports = {
+export default {
   displayName: 'http-client',
   preset: 'ts-jest',
   testEnvironment: 'node',
