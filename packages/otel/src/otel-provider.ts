@@ -13,9 +13,10 @@ import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import {
   defaultResource,
+  emptyResource,
   resourceFromAttributes,
 } from '@opentelemetry/resources';
-import type { Resource } from '@opentelemetry/resources';
+import { Resource } from '@opentelemetry/resources';
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { NodeSDK } from '@opentelemetry/sdk-node';
@@ -23,6 +24,7 @@ import {
   ATTR_SERVICE_NAME,
   ATTR_SERVICE_VERSION,
 } from '@opentelemetry/semantic-conventions';
+import { IncomingMessage } from 'http';
 
 function getEnvNumber(name: string, fallback: number): number {
   const raw = process.env[name];
@@ -111,9 +113,14 @@ function createSdk() {
   const otlpExporter = new OTLPMetricExporter();
   const traceExporter = new OTLPTraceExporter();
   const prometheusExporter = new PrometheusExporter({
-    prefix: serviceName.replace(/-/g, '_'),
+    // predefined prefix will cause common metrics(which will accross multi services) diff to be grouped
+    // prefix: serviceName.replace(/-/g, '_'),
     port: prometheusPort,
+    withResourceConstantLabels: /^(service\.name|service\.version)$/, // turn resource attrs into default labels
   });
+  const resource = emptyResource().merge(resourceFromAttributes({
+    'serviceName': serviceName,
+  }));
   const logExporter = new OTLPLogExporter();
   const otlpReader = new PeriodicExportingMetricReader({
     exporter: otlpExporter,
@@ -124,7 +131,7 @@ function createSdk() {
     resource: buildResource(),
     traceExporter,
     metricReaders: [otlpReader, prometheusExporter],
-    logRecordProcessor: new BatchLogRecordProcessor(logExporter),
+    logRecordProcessors: [new BatchLogRecordProcessor(logExporter)],
     instrumentations: [
       getNodeAutoInstrumentations({
         '@opentelemetry/instrumentation-dns': {
@@ -136,9 +143,12 @@ function createSdk() {
         '@opentelemetry/instrumentation-openai': {
           enabled: false,
         },
+        '@opentelemetry/instrumentation-winston': {
+          enabled: false,
+        },
 
         '@opentelemetry/instrumentation-http': {
-          ignoreIncomingRequestHook: (req: { url?: string }) => {
+          ignoreIncomingRequestHook: (req: IncomingMessage) => {
             const url = req.url || '';
             const isHealthCheck =
               url === '/health' || url.startsWith('/health/');
@@ -180,7 +190,7 @@ function createSdk() {
     .then(() => diag.debug('OpenTelemetry SDK successfully started'))
     .catch(err => diag.error('OpenTelemetry SDK failed to start', err));
 
-  registerProcessShutdown(sdk);
+  // registerProcessShutdown(sdk);
   telemetryGlobals[globalSdkKey] = sdk;
 }
 

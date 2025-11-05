@@ -11,7 +11,7 @@ export function trackFunction(config: DecoratorConfig = {}) {
   return function (
     target: any,
     propertyKey: string,
-    descriptor: PropertyDescriptor
+    descriptor: PropertyDescriptor,
   ) {
     const originalMethod = descriptor.value;
     const logger = new Logger({
@@ -37,7 +37,7 @@ export function trackFunction(config: DecoratorConfig = {}) {
 
       logger.debug(
         `Tracking function start: ${propertyKey}`,
-        logData
+        logData,
       );
 
       try {
@@ -54,7 +54,7 @@ export function trackFunction(config: DecoratorConfig = {}) {
                   ...logData,
                   duration: asyncDuration,
                   success: true,
-                }
+                },
               );
               return asyncResult;
             })
@@ -70,7 +70,7 @@ export function trackFunction(config: DecoratorConfig = {}) {
                   ...logData,
                   duration: asyncDuration,
                   success: false,
-                }
+                },
               );
 
               throw errorObj;
@@ -82,7 +82,7 @@ export function trackFunction(config: DecoratorConfig = {}) {
               ...logData,
               duration,
               success: true,
-            }
+            },
           );
           return result;
         }
@@ -98,7 +98,7 @@ export function trackFunction(config: DecoratorConfig = {}) {
             ...logData,
             duration,
             success: false,
-          }
+          },
         );
 
         throw errorObj;

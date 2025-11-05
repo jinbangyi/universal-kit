@@ -23,7 +23,6 @@ The repository provides:
 
 - **@universal-kit/logger**: Winston-based structured logging with metadata (v0.1.0)
 - **@universal-kit/http-client**: HTTP client wrapper with automatic API usage measurement (v0.1.0)
-- **@universal-kit/decorators**: Decorator system for API usage tracking (v0.1.0)
 - **@universal-kit/otel**: Full OpenTelemetry protocol support (v0.1.0)
 
 ## Development Commands
@@ -49,10 +48,8 @@ pnpm example
 
 ```
 packages/
-├── core/           # Core types: ApiMetrics, LogMetadata, configurations
 ├── logger/         # Winston-based logger with structured logging, request ID tracking
 ├── http-client/    # Axios wrapper with automatic metrics and retry logic
-├── decorators/     # @measureApiUsage, @measureHttpCall, @trackFunction decorators
 └── otel/           # Full OpenTelemetry SDK with logs, metrics, traces
 ```
 
@@ -60,7 +57,6 @@ packages/
 
 - **API Usage Measurement**: Automatic tracking of HTTP calls with timing and metadata
 - **Structured Logging**: Winston-based logging with request correlation and metadata
-- **Decorator System**: Easy integration with TypeScript decorators for automatic tracking
 - **OpenTelemetry Integration**: Complete observability protocol support for enterprise use
 - **Request ID Tracking**: Correlated logging across operations
 - **Advanced Logging**: Log querying, streaming, child loggers, dynamic log levels
@@ -69,10 +65,8 @@ packages/
 
 The project follows a monorepo structure with clear separation of concerns:
 
-- **Core package** provides shared types and interfaces
 - **Logger package** handles structured logging with Winston
 - **HTTP client** wraps Axios with automatic metrics collection
-- **Decorators** provide declarative API usage tracking
 - **OTel package** enables enterprise observability integration
 
 ## Current Status

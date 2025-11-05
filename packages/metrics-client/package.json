@@ -2,10 +2,26 @@
   "name": "@universal-kit/metrics-client",
   "version": "0.1.0",
   "description": "OpenTelemetry-based metrics HTTP client wrapper with API provider monitoring and enhanced tracing",
-  "main": "dist/index.js",
+  "main": "dist/index.cjs",
   "module": "dist/index.js",
   "types": "dist/index.d.ts",
-  "type": "module",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      },
+      "require": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.cjs"
+      },
+      "default": {
+        "types": "./dist/index.d.ts",
+        "default": "./dist/index.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -32,13 +48,16 @@
     "provider-metrics"
   ],
   "scripts": {
-    "build": "tsc src/index.ts --outDir dist --declaration --target ES2022 --module ESNext --moduleResolution bundler --esModuleInterop --skipLibCheck",
+    "build": "npm run build:esm && npm run build:cjs",
+    "build:esm": "tsc --project tsconfig.json",
+    "build:cjs": "tsc --project tsconfig.cjs.json && cp dist-cjs/index.js dist/index.cjs",
     "dev": "tsc src/**/*.ts --outDir dist --declaration --target ES2022 --module CommonJS --moduleResolution node --esModuleInterop --watch",
     "lint": "eslint src/**/*.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "clean": "rm -rf dist node_modules"
+    "clean": "rm -rf dist dist-cjs node_modules",
+    "prepublishOnly": "npm run clean && npm run build"
   },
   "dependencies": {
     "@universal-kit/logger": "workspace:*",

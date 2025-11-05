@@ -1,7 +1,8 @@
 import { Logger } from '@universal-kit/logger';
-import { ProviderMetricsManager } from '../metrics/api-provider-metrics';
-import { RequestTracer, RequestTraceConfig } from '../tracing/api-provider-tracing';
-import { ApiMetrics, BaseApiMetrics } from '../typing';
+import { ProviderMetricsManager } from '../metrics/api-provider-metrics.js';
+import { RequestTracer } from '../tracing/api-provider-tracing.js';
+import type { RequestTraceConfig } from '../tracing/api-provider-tracing.js';
+import type { ApiMetrics, BaseApiMetrics } from '../typing.js';
 
 export interface BaseWrapperConfig {
   // name of the API

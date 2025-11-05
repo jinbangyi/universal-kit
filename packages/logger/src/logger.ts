@@ -44,12 +44,12 @@ const universalKitFormat = winston.format.combine(
   }),
   winston.format.printf(info => {
     const winstonInfo = info as WinstonInfo;
-    const timestamp = winstonInfo.timestamp;
-    const level = winstonInfo.level;
-    const message = winstonInfo.message;
+    const { timestamp } = winstonInfo;
+    const { level } = winstonInfo;
+    const { message } = winstonInfo;
     const metadata = winstonInfo.metadata || {};
     const library = metadata.library || 'unknown';
-    const requestId = metadata.requestId;
+    const { requestId } = metadata;
 
     let metadataStr = '';
     const metaObj: Record<string, any> = { ...metadata };
@@ -65,7 +65,7 @@ const universalKitFormat = winston.format.combine(
       return `[${timestamp}] ${levelStr} [${library}:${requestId}] ${message}${metadataStr}`;
     }
     return `[${timestamp}] ${levelStr} [${library}] ${message}${metadataStr}`;
-  })
+  }),
 );
 
 
@@ -91,7 +91,7 @@ export class Logger {
       new winston.transports.Console({
         format: universalKitFormat,
         level: this.config.level,
-      })
+      }),
     );
 
     this.winston = winston.createLogger({
@@ -169,7 +169,7 @@ export class Logger {
     }
     this.otelLogger = logs.getLogger(
       this.config.otelLoggerName,
-      this.config.otelLoggerVersion
+      this.config.otelLoggerVersion,
     );
   }
 
@@ -185,7 +185,7 @@ export class Logger {
 
   private createLogData(
     metadata?: Record<string, any>,
-    error?: Error
+    error?: Error,
   ): LogData {
     const logData: LogData = {
       ...this.config.customFields,
@@ -263,18 +263,18 @@ export class Logger {
 
     if (Array.isArray(value)) {
       const simple = value.filter(
-        item => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean'
+        item => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean',
       );
 
       if (simple.length === value.length && simple.length > 0) {
         if (simple.every(item => typeof item === 'string')) {
-          return simple as string[];
+          return simple;
         }
         if (simple.every(item => typeof item === 'number')) {
-          return simple as number[];
+          return simple;
         }
         if (simple.every(item => typeof item === 'boolean')) {
-          return simple as boolean[];
+          return simple;
         }
       }
 
@@ -285,7 +285,7 @@ export class Logger {
       return JSON.stringify(value);
     }
 
-    return String(value) as string;
+    return String(value);
   }
 }
 

@@ -1,10 +1,10 @@
-export { BaseHttpClient, BaseWrapperConfig } from './http-client/common';
-export { NodeFetchWrapper, NodeFetchWrapperConfig } from './http-client/node-fetch-wrapper';
-export { AxiosWrapper, AxiosWrapperRequestConfig } from './http-client/axios-wrapper';
+export { BaseHttpClient, type BaseWrapperConfig } from './http-client/common.js';
+export { NodeFetchWrapper, type NodeFetchWrapperConfig } from './http-client/node-fetch-wrapper.js';
+export { AxiosWrapper, type AxiosWrapperRequestConfig } from './http-client/axios-wrapper.js';
 
 // Export enhanced metrics and tracing functionality
-export { ProviderMetricsManager, initializeProviderMetrics } from './metrics/api-provider-metrics';
-export type { ProviderMetricsConfig, ProviderMetricsCollection } from './metrics/api-provider-metrics';
+export { ProviderMetricsManager, initializeProviderMetrics } from './metrics/api-provider-metrics.js';
+export type { ProviderMetricsConfig, ProviderMetricsCollection } from './metrics/api-provider-metrics.js';
 
-export { RequestTracer } from './tracing/api-provider-tracing';
-export type { RequestTraceConfig } from './tracing/api-provider-tracing';
+export { RequestTracer } from './tracing/api-provider-tracing.js';
+export type { RequestTraceConfig } from './tracing/api-provider-tracing.js';

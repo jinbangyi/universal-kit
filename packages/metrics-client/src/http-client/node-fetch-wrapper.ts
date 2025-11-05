@@ -1,5 +1,6 @@
 import { Logger } from '@universal-kit/logger';
-import { BaseHttpClient, BaseWrapperConfig, defaultApiKey } from './common';
+import { BaseHttpClient, defaultApiKey } from './common.js';
+import type { BaseWrapperConfig } from './common.js';
 
 export interface NodeFetchWrapperConfig extends BaseWrapperConfig {
   getApiKey?: (options: RequestInit) => string;

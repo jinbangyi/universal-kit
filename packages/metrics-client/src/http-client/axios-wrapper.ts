@@ -6,8 +6,9 @@ import axios, {
   InternalAxiosRequestConfig,
 } from 'axios';
 import { Logger } from '@universal-kit/logger';
-import { BaseHttpClient, BaseWrapperConfig, defaultApiKey } from './common';
-import { ApiMetrics } from '../typing';
+import { BaseHttpClient, defaultApiKey } from './common.js';
+import type { BaseWrapperConfig } from './common.js';
+import type { ApiMetrics } from '../typing.js';
 
 // Axios-compatible interfaces
 export interface AxiosWrapperRequestConfig<D = any> extends AxiosRequestConfig<D> {
@@ -60,6 +61,7 @@ export class AxiosWrapper extends BaseHttpClient {
       error => {
         return Promise.reject(error);
       },
+      { synchronous: true, runWhen: () => /* This function returns true */ true }
     );
 
     // Response interceptor
@@ -119,6 +121,18 @@ export class AxiosWrapper extends BaseHttpClient {
     return this.processRequestError(baseAttributes, url, error, startTime, null, requestSize,
       { url, method, headers: config?.headers || {}, body: config?.data },
     );
+  }
+
+  request(config: AxiosWrapperRequestConfig): Promise<AxiosResponse> {
+    return this.axiosInstance.request(config);
+  }
+
+  get<T = any, R = AxiosResponse<T>>(url: string, config?: AxiosWrapperRequestConfig): Promise<R> {
+    return this.axiosInstance.get<T, R>(url, config);
+  }
+
+  post<T = any, R = AxiosResponse<T>>(url: string, data?: T, config?: AxiosWrapperRequestConfig): Promise<R> {
+    return this.axiosInstance.post<T, R>(url, data, config);
   }
 
   // Get underlying Axios instance for advanced usage

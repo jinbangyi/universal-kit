@@ -1,20 +1,17 @@
 import { Histogram, Counter, UpDownCounter, metrics, Meter } from '@opentelemetry/api';
-import { BaseApiMetrics } from '../typing';
+import type { BaseApiMetrics } from '../typing.js';
 
 export interface ProviderMetricsConfig {
   enabled: boolean;
   meterName?: string;
   meterVersion?: string;
-  getStatusCategory?: (statusCode: number) => string;
+  getStatusCategory?: (statusCode: number | string) => string;
   isSuccessStatus?: (statusCode: number) => boolean;
 }
 
 export interface ProviderMetricsCollection {
   // API Provider latency metrics
   providerLatency: Histogram;
-
-  // API Key usage tracking
-  apiKeyUsage: Counter;
 
   // Provider success rate metrics
   providerRequests: Counter;
@@ -27,6 +24,19 @@ export interface ProviderMetricsCollection {
   // Request/response size metrics
   requestSize: Histogram;
   responseSize: Histogram;
+}
+
+interface BaseProviderLabels {
+  provider: string;
+  api_key: string;
+  host: string;
+}
+
+interface FullProviderLabels extends BaseProviderLabels {
+  method: string;
+  path: string;
+  status_code: string;
+  status_category: string;
 }
 
 export class ProviderMetricsManager {
@@ -61,11 +71,6 @@ export class ProviderMetricsManager {
       unit: 'ms',
     });
 
-    // API Key usage counter
-    this.metrics.apiKeyUsage = this.meter.createCounter('api_provider_api_key_usage_total', {
-      description: 'Total number of API key usages',
-    });
-
     // Provider request counters
     this.metrics.providerRequests = this.meter.createCounter('api_provider_requests_total', {
       description: 'Total number of requests to API providers',
@@ -97,34 +102,109 @@ export class ProviderMetricsManager {
     });
   }
 
+  private recordResponseSize(
+    attributes: BaseProviderLabels,
+    responseSize: number,
+  ) {
+    this.metrics.responseSize.record(responseSize, {
+      provider: attributes.provider,
+      api_key: attributes.api_key,
+      host: attributes.host,
+    });
+  }
+
+  private recordRequestSize(
+    attributes: BaseProviderLabels,
+    requestSize: number,
+  ) {
+    this.metrics.requestSize.record(requestSize, {
+      provider: attributes.provider,
+      api_key: attributes.api_key,
+      host: attributes.host,
+    });
+  }
+
+  private changeActiveRequests(
+    attributes: BaseProviderLabels,
+    delta: number
+  ) {
+    this.metrics.activeRequests.add(delta, {
+      provider: attributes.provider,
+      api_key: attributes.api_key,
+      host: attributes.host,
+    });
+  }
+
+  private incrementProviderRequests(
+    attributes: FullProviderLabels
+  ) {
+    this.metrics.providerRequests.add(1, {
+      provider: attributes.provider,
+      api_key: attributes.api_key,
+      host: attributes.host,
+      method: attributes.method,
+      path: attributes.path,
+      status_code: attributes.status_code,
+      status_category: attributes.status_category,
+    });
+  }
+
+  private incrementProviderSuccesses(
+    attributes: FullProviderLabels
+  ) {
+    this.metrics.providerSuccesses.add(1, {
+      provider: attributes.provider,
+      api_key: attributes.api_key,
+      host: attributes.host,
+      method: attributes.method,
+      path: attributes.path,
+      status_category: attributes.status_category,
+    });
+  }
+
+  private incrementProviderFailures(
+    attributes: FullProviderLabels
+  ) {
+    this.metrics.providerFailures.add(1, {
+      provider: attributes.provider,
+      api_key: attributes.api_key,
+      host: attributes.host,
+      method: attributes.method,
+      path: attributes.path,
+      status_category: attributes.status_category,
+    });
+  }
+
+  private recordProviderLatency(
+    attributes: BaseProviderLabels,
+    duration: number,
+  ) {
+    this.metrics.providerLatency.record(duration, {
+      provider: attributes.provider,
+      api_key: attributes.api_key,
+      host: attributes.host,
+    });
+  }
+
   recordRequestStart(
     baseAttributes: BaseApiMetrics,
     requestSize?: number,
   ): void {
     if (!this.config.enabled) return;
 
-    const attributes = {
-      provider: baseAttributes.provider,
-      api_key: baseAttributes.apiKey,
-      host: baseAttributes.host,
-      method: baseAttributes.method,
-      path: baseAttributes.path,
-    };
-
     // Increment active requests
-    this.metrics.activeRequests.add(1, attributes);
+    this.changeActiveRequests({
+      ...baseAttributes,
+      api_key: baseAttributes.apiKey,
+    }, 1);
 
     // Record request size if available
     if (requestSize !== undefined) {
-      this.metrics.requestSize.record(requestSize, attributes);
+      this.recordRequestSize({
+        ...baseAttributes,
+        api_key: baseAttributes.apiKey,
+      }, requestSize);
     }
-
-    // Record API key usage
-    this.metrics.apiKeyUsage.add(1, {
-      provider: baseAttributes.provider,
-      api_key: baseAttributes.apiKey,
-      path: baseAttributes.path,
-    });
   }
 
   recordRequestComplete(
@@ -135,46 +215,50 @@ export class ProviderMetricsManager {
   ): void {
     if (!this.config.enabled) return;
 
-    const baseAttributes = {
-      provider: baseApiMetrics.provider,
-      api_key: baseApiMetrics.apiKey,
-      host: baseApiMetrics.host,
-      method: baseApiMetrics.method,
-      path: baseApiMetrics.path,
-    };
-
-    const attributes = {
-      ...baseAttributes,
-      status_code: statusCode.toString(),
-      status_category: this.config.getStatusCategory(statusCode),
-    };
-
     // Record latency
-    this.metrics.providerLatency.record(duration, attributes);
+    this.recordProviderLatency({
+      ...baseApiMetrics,
+      api_key: baseApiMetrics.apiKey,
+    }, duration);
 
     // Record response size if available
     if (responseSize !== undefined) {
-      this.metrics.responseSize.record(responseSize, attributes);
+      this.recordResponseSize({
+        ...baseApiMetrics,
+        api_key: baseApiMetrics.apiKey,
+      }, responseSize);
     }
 
     // Record provider request counters
-    this.metrics.providerRequests.add(1, baseAttributes);
+    this.incrementProviderRequests({
+      ...baseApiMetrics,
+      api_key: baseApiMetrics.apiKey,
+      status_code: statusCode.toString(),
+      status_category: this.config.getStatusCategory(statusCode),
+    });
 
     // Record success or failure
     if (this.config.isSuccessStatus(statusCode)) {
-      this.metrics.providerSuccesses.add(1, {
-        ...baseAttributes,
+      this.incrementProviderSuccesses({
+        ...baseApiMetrics,
+        api_key: baseApiMetrics.apiKey,
         status_code: statusCode.toString(),
+        status_category: this.config.getStatusCategory(statusCode),
       });
     } else {
-      this.metrics.providerFailures.add(1, {
-        ...baseAttributes,
+      this.incrementProviderFailures({
+        ...baseApiMetrics,
+        api_key: baseApiMetrics.apiKey,
         status_code: statusCode.toString(),
+        status_category: this.config.getStatusCategory(statusCode),
       });
     }
 
     // Decrement active requests
-    this.metrics.activeRequests.add(-1, baseAttributes);
+    this.changeActiveRequests({
+      ...baseApiMetrics,
+      api_key: baseApiMetrics.apiKey,
+    }, -1);
   }
 
   recordRequestError(
@@ -183,29 +267,24 @@ export class ProviderMetricsManager {
   ): void {
     if (!this.config.enabled) return;
 
-    const attributes = {
-      provider: baseApiMetrics.provider,
-      host: baseApiMetrics.host,
-      api_key: baseApiMetrics.apiKey,
-      method: baseApiMetrics.method,
-      path: baseApiMetrics.path,
-      error_type: errorType,
-    };
-
+    const codeString = errorType.substring(0, 10);
     // Record provider failure
-    this.metrics.providerFailures.add(1, attributes);
+    this.incrementProviderFailures({
+      ...baseApiMetrics,
+      api_key: baseApiMetrics.apiKey,
+      status_code: codeString,
+      status_category: this.config.getStatusCategory(codeString),
+    });
 
     // Decrement active requests
-    this.metrics.activeRequests.add(-1, attributes);
+    this.changeActiveRequests({
+      ...baseApiMetrics,
+      api_key: baseApiMetrics.apiKey,
+    }, -1);
   }
 
-  getProviderSuccessRate(provider: string, apiKey: string): number {
-    // This would typically be calculated from metrics data
-    // For now, return a placeholder implementation
-    return 0.95; // Placeholder
-  }
-
-  private getStatusCategory(statusCode: number): string {
+  private getStatusCategory(statusCode: number | string): string {
+    if (typeof statusCode === 'string') return statusCode;
     if (this.config.isSuccessStatus(statusCode)) return 'success';
     if (statusCode >= 300 && statusCode < 400) return 'redirection';
     if (statusCode >= 400 && statusCode < 500) return 'client_error';

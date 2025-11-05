@@ -2,5 +2,8 @@ docs/developer/
 debug/
 node_modules/
 dist/
+dist-cjs/
 .turbo/
 tsconfig.tsbuildinfo
+tsconfig.cjs.tsbuildinfo
+/core
