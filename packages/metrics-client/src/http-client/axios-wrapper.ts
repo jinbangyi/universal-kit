@@ -8,7 +8,7 @@ import axios, {
 import { Logger } from '@universal-kit/logger';
 import { BaseHttpClient, defaultApiKey } from './common.js';
 import type { BaseWrapperConfig } from './common.js';
-import type { AxiosRequestMetadata, RequestInfo } from '../typing.js';
+import type { AxiosRequestMetadata, ErrorContext, RequestInfo } from '../typing.js';
 
 // Axios-compatible interfaces
 export interface AxiosWrapperRequestConfig<D = any> extends AxiosRequestConfig<D> {
@@ -110,7 +110,16 @@ export class AxiosWrapper extends BaseHttpClient {
 
   private processError(error: AxiosError) {
     const requestMetadata = (error.config?.metadata as AxiosRequestMetadata) || {};
-    this.processRequestError(requestMetadata, error);
+    const responseMessage = error.response?.statusText;
+    const responseStatus = error.response?.status;
+    const errorContext: ErrorContext = {
+      responseMessage,
+      responseStatus,
+    };
+
+    this.processRequestError(requestMetadata, error, {
+      ...errorContext,
+    });
   }
 
   request(config: AxiosWrapperRequestConfig): Promise<AxiosResponse> {

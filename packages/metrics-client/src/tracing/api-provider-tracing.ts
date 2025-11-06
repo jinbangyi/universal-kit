@@ -1,6 +1,6 @@
 import { Logger } from '@universal-kit/logger';
 import { trace, SpanKind, SpanStatusCode, context as otelContext, Tracer, Span } from '@opentelemetry/api';
-import { RequestInfo, ResponseInfo } from '../typing';
+import { ErrorContext, RequestInfo, ResponseInfo } from '../typing';
 
 export interface RequestTraceConfig {
   enabled?: boolean; // Default: true
@@ -64,10 +64,10 @@ export class RequestTracer {
     return span;
   }
 
-  logRequestEvent(event: RequestEvent): void {
+  logRequestEvent(event: RequestEvent) {
     if (!this.config.enabled || !this.config.logRequestEvents) return;
 
-    const baseMessage = `Request [${event.type.toUpperCase()}] ${event.method} ${event.url}`;
+    const baseMessage = `Request ${event.type.toUpperCase()} ${event.method} ${event.url}`;
     const logData = {
       requestId: event.requestId,
       provider: event.provider,
@@ -80,7 +80,6 @@ export class RequestTracer {
       ...logData,
       params: event.params,
       headers: event.headers,
-      body: event.body,
     };
 
     switch (event.type) {
@@ -118,12 +117,14 @@ export class RequestTracer {
   logFailedRequestDetails(
     requestInfo: RequestInfo,
     error: Error,
+    responseContext: ErrorContext,
   ) {
     if (!this.config.enabled || !this.config.traceFailedRequests) return;
 
     const errorDetails = {
       requestId: requestInfo.requestId,
       method: requestInfo.method,
+      responseContext,
       url: requestInfo.url,
       error: {
         name: error.name,
@@ -136,8 +137,8 @@ export class RequestTracer {
 
     // Log the error summary
     this.logger.error(
-      `Detailed failed request`,
-      error,
+      `Request failed`,
+      { name: error.name, message: error.message },
       { requestId: requestInfo.requestId },
     );
 
@@ -148,7 +149,7 @@ export class RequestTracer {
     );
   }
 
-  finishRequestSpan(span: Span, metrics: ResponseInfo) {
+  finishRequestSpan(span: Span, metrics: ResponseInfo, extraAttributes?: Record<string, string>) {
     if (!span || !this.config.enabled) return;
 
     span.setAttributes({
@@ -157,6 +158,7 @@ export class RequestTracer {
       ...(metrics.provider && { 'api.provider': metrics.provider }),
       ...(metrics.apiKey && { 'api.key': metrics.apiKey }),
       ...(metrics.path && { 'http.target': metrics.path }),
+      ...(extraAttributes && { ...extraAttributes }),
     });
 
     if (metrics.statusCode && metrics.statusCode >= 400) {
@@ -189,7 +191,7 @@ export class RequestTracer {
     if (!request) return undefined;
 
     const sanitized: any = {
-      headers: this.sanitizeHeaders(request.headers),
+      headers: request.headers,
       data: undefined,
     };
 
@@ -203,25 +205,6 @@ export class RequestTracer {
           size: requestData.length,
           truncated: true,
         };
-      }
-    }
-
-    return sanitized;
-  }
-
-  private sanitizeHeaders(headers: Record<string, any>): Record<string, any> {
-    const sanitized: Record<string, any> = {};
-
-    for (const [key, value] of Object.entries(headers)) {
-      // Skip sensitive headers
-      const lowerKey = key.toLowerCase();
-      if (lowerKey.includes('authorization') ||
-        lowerKey.includes('api-key') ||
-        lowerKey.includes('token') ||
-        lowerKey.includes('secret')) {
-        sanitized[key] = '****';
-      } else {
-        sanitized[key] = value;
       }
     }
 

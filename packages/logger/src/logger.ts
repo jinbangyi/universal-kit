@@ -70,6 +70,14 @@ const universalKitFormat = winston.format.combine(
   }),
 );
 
+const levelsNumber: Record<LogLevel, number> = {
+  debug: 5,
+  verbose: 4,
+  info: 3,
+  notice: 2,
+  warn: 1,
+  error: 0,
+};
 
 export class Logger {
   private winston: winston.Logger;
@@ -184,14 +192,7 @@ export class Logger {
   }
 
   private shouldLog(level: LogLevel): boolean {
-    const levels: Record<LogLevel, number> = {
-      debug: 5,
-      verbose: 4,
-      info: 3,
-      notice: 2,
-      warn: 1,
-      error: 0,
-    };
+    const levels: Record<LogLevel, number> = levelsNumber;
     return levels[level] <= levels[this.config.level as LogLevel];
   }
 
@@ -229,6 +230,9 @@ export class Logger {
     if (!this.otelLogger) {
       return;
     }
+
+    // only the log level < notice will send to otel
+    if (levelsNumber[level] >= levelsNumber['notice']) return;
 
     const attributes = this.convertToAttributes(logData, error);
     this.otelLogger.emit({

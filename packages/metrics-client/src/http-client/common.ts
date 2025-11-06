@@ -2,7 +2,7 @@ import { Logger } from '@universal-kit/logger';
 import { ProviderMetricsManager } from '../metrics/api-provider-metrics.js';
 import { RequestTracer } from '../tracing/api-provider-tracing.js';
 import type { RequestTraceConfig } from '../tracing/api-provider-tracing.js';
-import type { AxiosRequestMetadata, RequestInfo, ResponseInfo } from '../typing.js';
+import type { AxiosRequestMetadata, ErrorContext, RequestInfo, ResponseInfo } from '../typing.js';
 import { InternalAxiosRequestConfig } from 'axios';
 
 export interface BaseWrapperConfig {
@@ -16,6 +16,7 @@ export interface BaseWrapperConfig {
   };
   traceFailedRequests?: boolean; // Default: true
   logRequestEvents?: boolean; // Default: true
+  redactedHeaders?: string[]; // Headers to redact in logs and traces
 }
 
 export const defaultApiKey = 'NOT_FOUND_API_KEY';
@@ -36,6 +37,7 @@ export abstract class BaseHttpClient {
       },
       traceFailedRequests: true,
       logRequestEvents: true,
+      redactedHeaders: [],
       ...config,
     };
 
@@ -124,22 +126,33 @@ export abstract class BaseHttpClient {
     }
   }
 
+  protected requestDataAttributes(request: Pick<RequestInfo, 'headers' | 'body'>): Record<string, string> {
+    if (!request) return {};
+    // create attributes for headers and body info
+    const sanitized: Record<string, string> = {};
+
+    if (request.headers) {
+      sanitized['request.headers'] = JSON.stringify(request.headers);
+    }
+
+    if (request.body) {
+      const bodyData = JSON.stringify(request.body);
+      if (bodyData.length <= 2048) { // 2KB limit for request body
+        sanitized['request.body'] = bodyData;
+      } else {
+        sanitized['request.body'] = `type: ${typeof request.body}, size: ${bodyData.length}, truncated: true`;
+      }
+    }
+
+    return sanitized;
+  }
+
   protected createRequestInfo(
     config: InternalAxiosRequestConfig,
   ): RequestInfo {
     const _apikey = this.config.getApiKey(config);
-    const headers = config.headers || {};
-
-    // hide api key in headers
-    if (this.config.apiKeyHeader && headers[this.config.apiKeyHeader]) {
-      headers[this.config.apiKeyHeader] = '****';
-    }
-    // hide api key by value in headers
-    for (const key of Object.keys(headers)) {
-      if (headers[key] === _apikey) {
-        headers[key] = '****';
-      }
-    }
+    const headersRecord = this.normalizeHeaders(config.headers);
+    const sanitizedHeaders = this.sanitizeHeaders(headersRecord, _apikey);
 
     const apiKey = this.hashApiKey(_apikey);
     const method = config.method?.toUpperCase() || 'GET';
@@ -156,11 +169,48 @@ export abstract class BaseHttpClient {
       host,
       method,
       path: pathname,
-      headers,
+      headers: sanitizedHeaders,
       params,
       body: config.data,
       ...(requestSize !== undefined && { requestSize }),
     };
+  }
+
+  private normalizeHeaders(rawHeaders: InternalAxiosRequestConfig['headers']): Record<string, any> {
+    const headers: Record<string, any> = {};
+
+    if (!rawHeaders) return headers;
+
+    const candidate = rawHeaders as any;
+
+    if (candidate && typeof candidate.toJSON === 'function') {
+      return { ...candidate.toJSON() };
+    }
+
+    return { ...(candidate as Record<string, any>) };
+  }
+
+  protected sanitizeHeaders(headers: Record<string, any>, apiKey: string): Record<string, any> {
+    const sanitized: Record<string, any> = {};
+    const apiKeyHeader = this.config.apiKeyHeader?.toLowerCase();
+    const redactedHeaders = this.config.redactedHeaders?.map(header => header.toLowerCase()) ?? [];
+
+    for (const [key, value] of Object.entries(headers)) {
+      const lowerKey = key.toLowerCase();
+      let sanitizedValue = value;
+
+      if (apiKeyHeader && lowerKey === apiKeyHeader) {
+        sanitizedValue = '****';
+      } else if (redactedHeaders.includes(lowerKey)) {
+        sanitizedValue = '****';
+      } else if (value === apiKey) {
+        sanitizedValue = '****';
+      }
+
+      sanitized[key] = sanitizedValue;
+    }
+
+    return sanitized;
   }
 
   protected processRequestStart(
@@ -216,6 +266,7 @@ export abstract class BaseHttpClient {
   protected processRequestError(
     requestMetadata: AxiosRequestMetadata,
     error: Error,
+    responseContext?: ErrorContext,
   ): RequestInfo {
     const duration = Date.now() - requestMetadata.startTime;
     const requestInfo: RequestInfo = requestMetadata.requestInfo;
@@ -240,13 +291,17 @@ export abstract class BaseHttpClient {
       this.requestTracer.logFailedRequestDetails(
         requestInfo,
         error,
+        responseContext || {},
       );
     }
 
+    // axios error may have response with status code
+    const statusCode = (error as any).response?.status || 501;
     // Finish request span with error
     this.requestTracer.finishRequestSpan(
       requestMetadata.span,
-      { ...requestInfo, duration, statusCode: 501, responseSize: 0 },
+      { ...requestInfo, duration, statusCode, responseSize: 0 },
+      this.requestDataAttributes(requestMetadata.requestInfo),
     );
 
     return requestInfo;

@@ -1,6 +1,6 @@
 {
   "name": "@universal-kit/otel",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "OpenTelemetry protocol support for universal-kit",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",

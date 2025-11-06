@@ -25,3 +25,8 @@ export interface ResponseInfo extends RequestInfo {
   duration: number;
   responseSize: number;
 }
+
+export interface ErrorContext {
+  responseMessage?: string;
+  responseStatus?: number;
+}

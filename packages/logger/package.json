@@ -1,6 +1,6 @@
 {
   "name": "@universal-kit/logger",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "Structured logger with metadata support for API usage tracking",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
