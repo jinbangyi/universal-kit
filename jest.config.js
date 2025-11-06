@@ -1,5 +1,6 @@
 module.exports = {
   projects: ['<rootDir>/packages/*/jest.config.js'],
+  passWithNoTests: true,
   collectCoverageFrom: [
     'packages/*/src/**/*.{ts,tsx}',
     '!packages/*/src/**/*.d.ts',

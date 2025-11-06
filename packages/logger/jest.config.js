@@ -4,6 +4,7 @@ module.exports = {
   testEnvironment: 'node',
   rootDir: './src',
   testMatch: ['**/__tests__/**/*.ts', '**/?(*.)+(spec|test).ts'],
+  passWithNoTests: true,
   globals: {
     'ts-jest': {
       tsconfig: {

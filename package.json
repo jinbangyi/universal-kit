@@ -12,12 +12,13 @@
     "format:check": "prettier --check \"**/*.{ts,js}\"",
     "test": "turbo run test",
     "clean:node_modules": "rm -rf node_modules && find examples -name node_modules -type d -exec rm -rf {} +",
-    "clean": "turbo run clean && pnpm run clean:node_modules",
+    "clean": "turbo run clean",
     "prerelease": "pnpm run build && pnpm run test && pnpm run lint",
     "publish:packages": "pnpm --filter \"./packages/*\" publish --access public --no-git-checks",
     "deploy": "pnpm run prerelease && pnpm run publish:packages"
   },
   "devDependencies": {
+    "@jest/globals": "^30.2.0",
     "@types/jest": "^29.5.0",
     "@types/node": "^20.0.0",
     "@typescript-eslint/eslint-plugin": "^8.0.0",
