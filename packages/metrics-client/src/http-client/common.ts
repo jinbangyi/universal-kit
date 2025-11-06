@@ -2,7 +2,8 @@ import { Logger } from '@universal-kit/logger';
 import { ProviderMetricsManager } from '../metrics/api-provider-metrics.js';
 import { RequestTracer } from '../tracing/api-provider-tracing.js';
 import type { RequestTraceConfig } from '../tracing/api-provider-tracing.js';
-import type { ApiMetrics, BaseApiMetrics } from '../typing.js';
+import type { AxiosRequestMetadata, RequestInfo, ResponseInfo } from '../typing.js';
+import { InternalAxiosRequestConfig } from 'axios';
 
 export interface BaseWrapperConfig {
   // name of the API
@@ -105,142 +106,131 @@ export abstract class BaseHttpClient {
     }
   }
 
-  protected parseUrl(url: string): { host: string; pathname: string } {
+  protected parseUrl(url: string) {
     try {
       const parsedUrl = new URL(url);
       return {
         host: parsedUrl.hostname || 'unknown',
         pathname: parsedUrl.pathname || '/',
+        params: Object.fromEntries(parsedUrl.searchParams.entries()),
       };
     } catch {
       // Fallback for relative URLs
       return {
         host: 'localhost',
         pathname: url.split('?')[0] || '/',
+        params: Object.fromEntries(new URLSearchParams(url.split('?')[1] || '').entries()),
       };
     }
   }
 
-  protected createBaseAttributes(
-    requestId: string,
-    method: string,
-    url: string,
-    apiKey: string,
-  ): BaseApiMetrics {
-    const { host, pathname: path } = this.parseUrl(url);
+  protected createRequestInfo(
+    config: InternalAxiosRequestConfig,
+  ): RequestInfo {
+    const _apikey = this.config.getApiKey(config);
+    const headers = config.headers || {};
+
+    // hide api key in headers
+    if (this.config.apiKeyHeader && headers[this.config.apiKeyHeader]) {
+      headers[this.config.apiKeyHeader] = '****';
+    }
+    // hide api key by value in headers
+    for (const key of Object.keys(headers)) {
+      if (headers[key] === _apikey) {
+        headers[key] = '****';
+      }
+    }
+
+    const apiKey = this.hashApiKey(_apikey);
+    const method = config.method?.toUpperCase() || 'GET';
+    const url = config.url || '';
+    const requestId = this.generateRequestId();
+    const { host, pathname, params } = this.parseUrl(url);
+    const requestSize = this.calculateRequestSize(config.data);
+
     return {
       requestId,
       provider: this.config.provider,
       apiKey,
+      url,
       host,
       method,
-      path,
+      path: pathname,
+      headers,
+      params,
+      body: config.data,
+      ...(requestSize !== undefined && { requestSize }),
     };
   }
 
   protected processRequestStart(
-    baseAttributes: BaseApiMetrics,
-    url: string,
-    requestSize?: number,
+    requestInfo: RequestInfo,
   ): { span: any; startTime: number } {
     const startTime = Date.now();
 
     // Create request span for tracing
-    const span = this.requestTracer.createRequestSpan(baseAttributes);
+    const span = this.requestTracer.createRequestSpan(requestInfo);
 
     // Log request start event
     this.requestTracer.logRequestEvent({
-      ...baseAttributes,
+      ...requestInfo,
       type: 'start',
       timestamp: startTime,
-      url,
-      metadata: { requestSize },
     });
 
     // Record provider metrics start
-    this.providerMetrics.recordRequestStart(baseAttributes, requestSize);
+    this.providerMetrics.recordRequestStart(requestInfo);
 
     return { span, startTime };
   }
 
   protected processRequestComplete(
-    baseAttributes: BaseApiMetrics,
-    url: string,
-    response: any,
-    startTime: number,
-    span: any,
-    requestSize?: number,
-    responseSize?: number,
-  ): ApiMetrics {
-    const duration = Date.now() - startTime;
-    const apiMetrics: ApiMetrics = {
-      ...baseAttributes,
+    requestMetadata: AxiosRequestMetadata,
+    statusCode: number,
+    responseSize: number,
+  ): ResponseInfo {
+    const duration = Date.now() - requestMetadata.startTime;
+    const responseInfo: ResponseInfo = {
+      ...requestMetadata.requestInfo,
       duration,
-      url,
-      statusCode: response.status,
-      timestamp: startTime,
-      ...(requestSize !== undefined && { requestSize }),
-      ...(responseSize !== undefined && { responseSize }),
+      statusCode,
+      responseSize,
     };
 
     // Record provider metrics
-    this.providerMetrics.recordRequestComplete(
-      baseAttributes,
-      response.status,
-      duration,
-      responseSize,
-    );
+    this.providerMetrics.recordRequestComplete(responseInfo);
 
     // Log request completion
     this.requestTracer.logRequestEvent({
-      ...baseAttributes,
+      ...responseInfo,
       type: 'complete',
       timestamp: Date.now(),
-      url,
-      statusCode: response.status,
-      duration,
-      metadata: { responseSize },
     });
 
     // Finish request span
-    if (span) {
-      this.requestTracer.finishRequestSpan(span, apiMetrics);
-    }
+    this.requestTracer.finishRequestSpan(requestMetadata.span, responseInfo);
 
-    return apiMetrics;
+    return responseInfo;
   }
 
   protected processRequestError(
-    baseAttributes: BaseApiMetrics,
-    url: string,
+    requestMetadata: AxiosRequestMetadata,
     error: Error,
-    startTime: number,
-    span: any,
-    requestSize?: number,
-    request?: any,
-  ): ApiMetrics {
-    const duration = Date.now() - startTime;
-    const apiMetrics: ApiMetrics = {
-      ...baseAttributes,
-      duration,
-      url,
-      error,
-      timestamp: startTime,
-      ...(requestSize !== undefined && { requestSize }),
-    };
+  ): RequestInfo {
+    const duration = Date.now() - requestMetadata.startTime;
+    const requestInfo: RequestInfo = requestMetadata.requestInfo;
 
     // Record provider error metrics
     this.providerMetrics.recordRequestError(
-      baseAttributes,
+      requestInfo,
       error.constructor.name,
     );
 
     // Log request error
     this.requestTracer.logRequestEvent({
-      ...baseAttributes,
+      ...requestInfo,
       type: 'error',
       timestamp: Date.now(),
-      url,
       duration,
       error,
     });
@@ -248,20 +238,18 @@ export abstract class BaseHttpClient {
     // Log detailed failed request information
     if (this.config.traceFailedRequests) {
       this.requestTracer.logFailedRequestDetails(
-        baseAttributes.requestId,
-        baseAttributes.method,
-        url,
+        requestInfo,
         error,
-        request,
       );
     }
 
     // Finish request span with error
-    if (span) {
-      this.requestTracer.finishRequestSpan(span, apiMetrics);
-    }
+    this.requestTracer.finishRequestSpan(
+      requestMetadata.span,
+      { ...requestInfo, duration, statusCode: 501, responseSize: 0 },
+    );
 
-    return apiMetrics;
+    return requestInfo;
   }
 
   // Public API methods

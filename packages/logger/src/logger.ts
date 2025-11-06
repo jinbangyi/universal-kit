@@ -2,13 +2,14 @@ import { logs, SeverityNumber, Logger as OtelLogger } from '@opentelemetry/api-l
 import type { Attributes, AttributeValue } from '@opentelemetry/api';
 import winston from 'winston';
 
-export type LogLevel = 'debug' | 'info' | 'warn' | 'error';
+type LogLevel = 'debug' | 'verbose' | 'info' | 'notice' | 'warn' | 'error';
 const serviceName = process.env.OTEL_SERVICE_NAME || 'universal-kit';
 const serviceVersion = process.env.OTEL_SERVICE_VERSION || '0.0.1';
+const globalLogLevel = process.env.KIT_LOG_LEVEL || (process.env.OTEL_LOG_LEVEL || 'info');
 
 export interface LoggerConfig {
   library: string;
-  level?: LogLevel;
+  level?: string;
   includeMetadata?: boolean;
   customFields?: Record<string, any>;
   enableOtel?: boolean;
@@ -53,6 +54,7 @@ const universalKitFormat = winston.format.combine(
 
     let metadataStr = '';
     const metaObj: Record<string, any> = { ...metadata };
+    if (metaObj.library === metaObj.provider) delete metaObj.provider;
     delete metaObj.library;
     delete metaObj.requestId;
 
@@ -77,7 +79,7 @@ export class Logger {
   constructor(config: LoggerConfig) {
     this.config = {
       library: config.library,
-      level: config.level || 'info',
+      level: config.level || globalLogLevel,
       includeMetadata: config.includeMetadata ?? true,
       customFields: { ...config.customFields },
       enableOtel: config.enableOtel ?? true,
@@ -107,7 +109,15 @@ export class Logger {
     if (!this.shouldLog('debug')) return;
     const logData = this.createLogData(metadata);
     this.winston.debug(message, logData);
+    this.winston.notice
     this.emitOtelLog('debug', message, logData);
+  }
+
+  verbose(message: string, metadata?: Record<string, any>): void {
+    if (!this.shouldLog('verbose')) return;
+    const logData = this.createLogData(metadata);
+    this.winston.verbose(message, logData);
+    this.emitOtelLog('verbose', message, logData);
   }
 
   info(message: string, metadata?: Record<string, any>): void {
@@ -175,12 +185,14 @@ export class Logger {
 
   private shouldLog(level: LogLevel): boolean {
     const levels: Record<LogLevel, number> = {
-      debug: 0,
-      info: 1,
-      warn: 2,
-      error: 3,
+      debug: 5,
+      verbose: 4,
+      info: 3,
+      notice: 2,
+      warn: 1,
+      error: 0,
     };
-    return levels[level] >= levels[this.config.level];
+    return levels[level] <= levels[this.config.level as LogLevel];
   }
 
   private createLogData(

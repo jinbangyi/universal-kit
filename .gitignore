@@ -7,3 +7,4 @@ dist-cjs/
 tsconfig.tsbuildinfo
 tsconfig.cjs.tsbuildinfo
 /core
+/packages/metrics-client/examples

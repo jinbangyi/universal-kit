@@ -8,7 +8,7 @@ import axios, {
 import { Logger } from '@universal-kit/logger';
 import { BaseHttpClient, defaultApiKey } from './common.js';
 import type { BaseWrapperConfig } from './common.js';
-import type { ApiMetrics } from '../typing.js';
+import type { AxiosRequestMetadata, RequestInfo } from '../typing.js';
 
 // Axios-compatible interfaces
 export interface AxiosWrapperRequestConfig<D = any> extends AxiosRequestConfig<D> {
@@ -46,14 +46,20 @@ export class AxiosWrapper extends BaseHttpClient {
     return defaultApiKey;
   }
 
-  private setupInterceptors(): void {
+  private setupInterceptors() {
     // Request interceptor
     this.axiosInstance.interceptors.request.use(
       config => {
         if (!config.skipMetrics) {
+          const requestInfo = this.createRequestInfo(config);
+          const { span, startTime } = this.processRequestStart(requestInfo);
+
+          const existingMetadata = config.metadata || {};
           config.metadata = {
-            startTime: Date.now(),
-            requestId: this.generateRequestId(),
+            ...existingMetadata,
+            startTime,
+            requestInfo,
+            span: span ?? null,
           };
         }
         return config;
@@ -81,17 +87,9 @@ export class AxiosWrapper extends BaseHttpClient {
     );
   }
 
-  private processResponse(response: AxiosResponse): ApiMetrics {
-    const config = response.config;
-    const startTime = config.metadata?.startTime || Date.now();
-    const requestId = config.metadata?.requestId || this.generateRequestId();
-    const method = config.method?.toUpperCase() || 'GET';
-    const url = response.config.url || '';
-    const apiKey = this.hashApiKey(this.config.getApiKey(config));
-
-    const baseAttributes = this.createBaseAttributes(requestId, method, url, apiKey);
-    const requestSize = this.calculateRequestSize(config.data);
-    let responseSize: number | undefined;
+  private processResponse(response: AxiosResponse) {
+    const requestMetadata = (response.config.metadata as AxiosRequestMetadata) || {};
+    let responseSize: number = 0;
     // Calculate response size if available
     const contentLength = response.headers['content-length'];
     if (contentLength) {
@@ -100,27 +98,19 @@ export class AxiosWrapper extends BaseHttpClient {
       try {
         responseSize = Buffer.byteLength(JSON.stringify(response.data), 'utf8');
       } catch {
-        responseSize = undefined;
+        responseSize = 0;
       }
     }
+    const statusCode = response.status;
 
-    return this.processRequestComplete(baseAttributes, url, response, startTime, null, requestSize, responseSize);
+    return this.processRequestComplete(
+      requestMetadata, statusCode, responseSize
+    );
   }
 
-  private processError(error: AxiosError): ApiMetrics {
-    const config = error.config;
-    const startTime = config?.metadata?.startTime || Date.now();
-    const requestId = config?.metadata?.requestId || this.generateRequestId();
-    const method = config?.method?.toUpperCase() || 'GET';
-    const url = config?.url || '';
-    const apiKey = this.hashApiKey(this.config.getApiKey(config));
-
-    const baseAttributes = this.createBaseAttributes(requestId, method, url, apiKey);
-    const requestSize = this.calculateRequestSize(config?.data);
-
-    return this.processRequestError(baseAttributes, url, error, startTime, null, requestSize,
-      { url, method, headers: config?.headers || {}, body: config?.data },
-    );
+  private processError(error: AxiosError) {
+    const requestMetadata = (error.config?.metadata as AxiosRequestMetadata) || {};
+    this.processRequestError(requestMetadata, error);
   }
 
   request(config: AxiosWrapperRequestConfig): Promise<AxiosResponse> {
@@ -144,10 +134,12 @@ export class AxiosWrapper extends BaseHttpClient {
 // Extend AxiosRequestConfig to include metadata
 declare module 'axios' {
   interface AxiosRequestConfig {
-    metadata?: {
-      startTime?: number;
-      requestId?: string;
-    };
+    metadata?: AxiosRequestMetadata;
+    skipMetrics?: boolean;
+  }
+
+  interface InternalAxiosRequestConfig<D = any> {
+    metadata?: AxiosRequestMetadata;
     skipMetrics?: boolean;
   }
 }

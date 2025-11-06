@@ -1,5 +1,5 @@
 import { Histogram, Counter, UpDownCounter, metrics, Meter } from '@opentelemetry/api';
-import type { BaseApiMetrics } from '../typing.js';
+import type { RequestInfo, ResponseInfo } from '../typing.js';
 
 export interface ProviderMetricsConfig {
   enabled: boolean;
@@ -64,11 +64,15 @@ export class ProviderMetricsManager {
     this.initializeMetrics();
   }
 
-  private initializeMetrics(): void {
+  private initializeMetrics() {
     // API Provider latency histogram
     this.metrics.providerLatency = this.meter.createHistogram('api_provider_latency_ms', {
       description: 'API provider request latency in milliseconds, will ignore failed requests',
       unit: 'ms',
+      advice: {
+        // 50ms -> 60s
+        explicitBucketBoundaries: [50, 100, 500, 1000, 2000, 5000, 10000, 30000, 60000],
+      },
     });
 
     // Provider request counters
@@ -93,12 +97,20 @@ export class ProviderMetricsManager {
     this.metrics.requestSize = this.meter.createHistogram('api_provider_request_size_bytes', {
       description: 'Size of API provider requests in bytes',
       unit: 'bytes',
+      advice: {
+        // 100bytes -> 60KB
+        explicitBucketBoundaries: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000],
+      },
     });
 
     // Response size histogram
     this.metrics.responseSize = this.meter.createHistogram('api_provider_response_size_bytes', {
       description: 'Size of API provider responses in bytes',
       unit: 'bytes',
+      advice: {
+        // 100bytes -> 60KB
+        explicitBucketBoundaries: [100, 500, 1000, 2000, 5000, 10000, 30000, 60000],
+      },
     });
   }
 
@@ -186,83 +198,73 @@ export class ProviderMetricsManager {
     });
   }
 
-  recordRequestStart(
-    baseAttributes: BaseApiMetrics,
-    requestSize?: number,
-  ): void {
+  recordRequestStart(requestInfo: RequestInfo) {
     if (!this.config.enabled) return;
 
     // Increment active requests
     this.changeActiveRequests({
-      ...baseAttributes,
-      api_key: baseAttributes.apiKey,
+      ...requestInfo,
+      api_key: requestInfo.apiKey,
     }, 1);
 
     // Record request size if available
-    if (requestSize !== undefined) {
+    if (requestInfo.requestSize !== undefined) {
       this.recordRequestSize({
-        ...baseAttributes,
-        api_key: baseAttributes.apiKey,
-      }, requestSize);
+        ...requestInfo,
+        api_key: requestInfo.apiKey,
+      }, requestInfo.requestSize);
     }
   }
 
-  recordRequestComplete(
-    baseApiMetrics: BaseApiMetrics,
-    statusCode: number,
-    duration: number,
-    responseSize?: number,
-  ): void {
+  recordRequestComplete(responseInfo: ResponseInfo) {
     if (!this.config.enabled) return;
 
     // Record latency
     this.recordProviderLatency({
-      ...baseApiMetrics,
-      api_key: baseApiMetrics.apiKey,
-    }, duration);
+      ...responseInfo,
+      api_key: responseInfo.apiKey,
+    }, responseInfo.duration);
 
     // Record response size if available
-    if (responseSize !== undefined) {
-      this.recordResponseSize({
-        ...baseApiMetrics,
-        api_key: baseApiMetrics.apiKey,
-      }, responseSize);
-    }
+    this.recordResponseSize({
+      ...responseInfo,
+      api_key: responseInfo.apiKey,
+    }, responseInfo.responseSize);
 
     // Record provider request counters
     this.incrementProviderRequests({
-      ...baseApiMetrics,
-      api_key: baseApiMetrics.apiKey,
-      status_code: statusCode.toString(),
-      status_category: this.config.getStatusCategory(statusCode),
+      ...responseInfo,
+      api_key: responseInfo.apiKey,
+      status_code: responseInfo.statusCode.toString(),
+      status_category: this.config.getStatusCategory(responseInfo.statusCode),
     });
 
     // Record success or failure
-    if (this.config.isSuccessStatus(statusCode)) {
+    if (this.config.isSuccessStatus(responseInfo.statusCode)) {
       this.incrementProviderSuccesses({
-        ...baseApiMetrics,
-        api_key: baseApiMetrics.apiKey,
-        status_code: statusCode.toString(),
-        status_category: this.config.getStatusCategory(statusCode),
+        ...responseInfo,
+        api_key: responseInfo.apiKey,
+        status_code: responseInfo.statusCode.toString(),
+        status_category: this.config.getStatusCategory(responseInfo.statusCode),
       });
     } else {
       this.incrementProviderFailures({
-        ...baseApiMetrics,
-        api_key: baseApiMetrics.apiKey,
-        status_code: statusCode.toString(),
-        status_category: this.config.getStatusCategory(statusCode),
+        ...responseInfo,
+        api_key: responseInfo.apiKey,
+        status_code: responseInfo.statusCode.toString(),
+        status_category: this.config.getStatusCategory(responseInfo.statusCode),
       });
     }
 
     // Decrement active requests
     this.changeActiveRequests({
-      ...baseApiMetrics,
-      api_key: baseApiMetrics.apiKey,
+      ...responseInfo,
+      api_key: responseInfo.apiKey,
     }, -1);
   }
 
   recordRequestError(
-    baseApiMetrics: BaseApiMetrics,
+    requestInfo: RequestInfo,
     errorType: string,
   ): void {
     if (!this.config.enabled) return;
@@ -270,16 +272,16 @@ export class ProviderMetricsManager {
     const codeString = errorType.substring(0, 10);
     // Record provider failure
     this.incrementProviderFailures({
-      ...baseApiMetrics,
-      api_key: baseApiMetrics.apiKey,
+      ...requestInfo,
+      api_key: requestInfo.apiKey,
       status_code: codeString,
       status_category: this.config.getStatusCategory(codeString),
     });
 
     // Decrement active requests
     this.changeActiveRequests({
-      ...baseApiMetrics,
-      api_key: baseApiMetrics.apiKey,
+      ...requestInfo,
+      api_key: requestInfo.apiKey,
     }, -1);
   }
 

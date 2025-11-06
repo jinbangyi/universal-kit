@@ -42,13 +42,9 @@ const metricExportTimeout = getEnvNumber('OTEL_METRIC_EXPORT_TIMEOUT', 30000);
 const prometheusPort = getEnvNumber('OTEL_PROMETHEUS_PORT', 9000);
 
 const globalSdkKey = Symbol.for(`${serviceName}.telemetry.sdk`);
-const globalShutdownKey = Symbol.for(
-  `${serviceName}.telemetry.shutdown-registered`
-);
 
 type GlobalTelemetry = typeof globalThis & {
   [globalSdkKey]?: NodeSDK;
-  [globalShutdownKey]?: boolean;
 };
 
 const telemetryGlobals = globalThis as GlobalTelemetry;
@@ -78,29 +74,6 @@ function buildResource(): Resource {
   }
 
   return defaultResource().merge(resourceFromAttributes(resourceAttributes));
-}
-
-function registerProcessShutdown(sdk: NodeSDK) {
-  if (telemetryGlobals[globalShutdownKey]) {
-    return;
-  }
-
-  const shutdown = async (reason: string) => {
-    try {
-      await sdk.shutdown();
-    } catch (err) {
-      diag.error(
-        `Failed to shutdown OpenTelemetry SDK on ${reason}`,
-        err as Error
-      );
-    }
-  };
-
-  process.on('beforeExit', () => void shutdown('beforeExit'));
-  process.on('SIGINT', () => void shutdown('SIGINT'));
-  process.on('SIGTERM', () => void shutdown('SIGTERM'));
-
-  telemetryGlobals[globalShutdownKey] = true;
 }
 
 function createSdk() {

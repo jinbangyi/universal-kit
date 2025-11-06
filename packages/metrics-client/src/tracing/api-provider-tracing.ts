@@ -1,6 +1,6 @@
 import { Logger } from '@universal-kit/logger';
 import { trace, SpanKind, SpanStatusCode, context as otelContext, Tracer, Span } from '@opentelemetry/api';
-import { BaseApiMetrics, ApiMetrics } from '../typing';
+import { RequestInfo, ResponseInfo } from '../typing';
 
 export interface RequestTraceConfig {
   enabled?: boolean; // Default: true
@@ -11,10 +11,9 @@ export interface RequestTraceConfig {
   includeFailedRequestBody?: boolean; // Default: true
 }
 
-interface RequestEvent extends BaseApiMetrics {
+interface RequestEvent extends RequestInfo {
   type: 'start' | 'complete' | 'error' | 'retry';
   timestamp: number;
-  url: string;
   statusCode?: number;
   duration?: number;
   error?: Error;
@@ -43,21 +42,21 @@ export class RequestTracer {
   }
 
   createRequestSpan(
-    baseAttributes: BaseApiMetrics,
+    requestInfo: RequestInfo,
   ): Span | null {
     if (!this.config.enabled) return null;
 
     const span = this.tracer.startSpan(
-      `HTTP ${baseAttributes.method} ${baseAttributes.path}`,
+      `HTTP ${requestInfo.method} ${requestInfo.path}`,
       {
         kind: SpanKind.CLIENT,
         attributes: {
-          'request.id': baseAttributes.requestId,
-          'api.provider': baseAttributes.provider,
-          'api.key': baseAttributes.apiKey,
-          'http.host': baseAttributes.host,
-          'http.method': baseAttributes.method,
-          'http.path': baseAttributes.path,
+          'request.id': requestInfo.requestId,
+          'api.provider': requestInfo.provider,
+          'api.key': requestInfo.apiKey,
+          'http.host': requestInfo.host,
+          'http.method': requestInfo.method,
+          'http.path': requestInfo.path,
         },
       },
     );
@@ -68,48 +67,48 @@ export class RequestTracer {
   logRequestEvent(event: RequestEvent): void {
     if (!this.config.enabled || !this.config.logRequestEvents) return;
 
+    const baseMessage = `Request [${event.type.toUpperCase()}] ${event.method} ${event.url}`;
     const logData = {
       requestId: event.requestId,
       provider: event.provider,
       apiKey: event.apiKey,
-      method: event.method,
-      url: event.url,
       statusCode: event.statusCode,
       duration: event.duration,
-      error: event.error ? {
-        name: event.error.name,
-        message: event.error.message,
-        stack: event.error.stack,
-      } : undefined,
       metadata: event.metadata,
+    };
+    const fullLogData = {
+      ...logData,
+      params: event.params,
+      headers: event.headers,
+      body: event.body,
     };
 
     switch (event.type) {
       case 'start':
-        this.logger.info(
-          `Request started: ${event.method} ${event.url}`,
-          logData,
+        this.logger.verbose(
+          baseMessage,
+          fullLogData,
         );
         break;
 
       case 'complete':
         this.logger.info(
-          `Request completed: ${event.method} ${event.url} (${event.statusCode})`,
-          logData,
+          `${baseMessage} (${event.statusCode})`,
+          { ...logData, statusCode: undefined },
         );
         break;
 
       case 'error':
         this.logger.error(
-          `Request failed: ${event.method} ${event.url}`,
+          baseMessage,
           event.error || new Error('Unknown error'),
-          { requestId: event.requestId }
+          fullLogData,
         );
         break;
 
       case 'retry':
         this.logger.warn(
-          `Request retry: ${event.method} ${event.url}`,
+          baseMessage,
           logData,
         );
         break;
@@ -117,31 +116,29 @@ export class RequestTracer {
   }
 
   logFailedRequestDetails(
-    requestId: string,
-    method: string,
-    url: string,
+    requestInfo: RequestInfo,
     error: Error,
-    request?: { method: string; url: string; headers: Record<string, any>; body: any },
-  ): void {
+  ) {
     if (!this.config.enabled || !this.config.traceFailedRequests) return;
 
     const errorDetails = {
-      requestId,
-      method,
-      url,
+      requestId: requestInfo.requestId,
+      method: requestInfo.method,
+      url: requestInfo.url,
       error: {
         name: error.name,
         message: error.message,
         stack: error.stack,
       },
-      request: request && this.config.includeFailedRequestBody ? this.sanitizeRequest(request) : undefined,
+      request: this.config.includeFailedRequestBody ? this.sanitizeRequest(requestInfo) : undefined,
       timestamp: Date.now(),
     };
 
+    // Log the error summary
     this.logger.error(
       `Detailed failed request`,
       error,
-      { requestId },
+      { requestId: requestInfo.requestId },
     );
 
     // Log the detailed error data as structured metadata
@@ -151,7 +148,7 @@ export class RequestTracer {
     );
   }
 
-  finishRequestSpan(span: Span | null, metrics: ApiMetrics): void {
+  finishRequestSpan(span: Span, metrics: ResponseInfo) {
     if (!span || !this.config.enabled) return;
 
     span.setAttributes({
@@ -188,13 +185,12 @@ export class RequestTracer {
     span.addEvent(name, attributes);
   }
 
-  private sanitizeRequest(request: { method: string; url: string; headers: Record<string, any>; body: any }): any {
+  private sanitizeRequest(request: RequestInfo): any {
     if (!request) return undefined;
 
     const sanitized: any = {
-      method: request.method,
-      url: request.url,
       headers: this.sanitizeHeaders(request.headers),
+      data: undefined,
     };
 
     if (request.body) {
@@ -220,9 +216,9 @@ export class RequestTracer {
       // Skip sensitive headers
       const lowerKey = key.toLowerCase();
       if (lowerKey.includes('authorization') ||
-          lowerKey.includes('api-key') ||
-          lowerKey.includes('token') ||
-          lowerKey.includes('secret')) {
+        lowerKey.includes('api-key') ||
+        lowerKey.includes('token') ||
+        lowerKey.includes('secret')) {
         sanitized[key] = '****';
       } else {
         sanitized[key] = value;
