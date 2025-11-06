@@ -1,4 +1,4 @@
-import { Span } from "@opentelemetry/api";
+import { Span } from '@opentelemetry/api';
 
 export interface RequestInfo {
   requestId: string;
@@ -8,16 +8,16 @@ export interface RequestInfo {
   host: string;
   method: string;
   path: string;
-  headers: Record<string, any>;
-  params?: Record<string, any>;
-  body?: any;
+  headers: Record<string, string>;
+  params?: Record<string, string>;
+  body?: RequestInit['body'];
   requestSize?: number;
 }
 
 export interface AxiosRequestMetadata {
   startTime: number;
   requestInfo: RequestInfo;
-  span: Span;
+  span: Span | null;
 }
 
 export interface ResponseInfo extends RequestInfo {

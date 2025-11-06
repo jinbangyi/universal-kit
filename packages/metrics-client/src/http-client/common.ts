@@ -1,14 +1,24 @@
 import { Logger } from '@universal-kit/logger';
+import { Span } from '@opentelemetry/api';
+
 import { ProviderMetricsManager } from '../metrics/api-provider-metrics.js';
-import { RequestTracer } from '../tracing/api-provider-tracing.js';
-import type { RequestTraceConfig } from '../tracing/api-provider-tracing.js';
+import { RequestTracer, type RequestTraceConfig } from '../tracing/api-provider-tracing.js';
 import type { AxiosRequestMetadata, ErrorContext, RequestInfo, ResponseInfo } from '../typing.js';
-import { InternalAxiosRequestConfig } from 'axios';
+
+export interface GeneralRequestConfig {
+  url: string;
+  method: string;
+  headers?: RequestInit['headers'];
+  body?: RequestInit['body'];
+}
+
+// eslint-disable-next-line no-unused-vars
+type ApiKeyResolver = (arg: GeneralRequestConfig) => string;
 
 export interface BaseWrapperConfig {
   // name of the API
   provider: string;
-  getApiKey?: (options: any) => string;
+  getApiKey?: ApiKeyResolver;
   apiKeyHeader?: string; // Default: 'x-api-key'
   retryConfig?: { // Default: { attempts: 0, delay: 1000 }
     attempts: number;
@@ -41,7 +51,7 @@ export abstract class BaseHttpClient {
       ...config,
     };
 
-    this.logger = logger || new Logger({ library: this.config.provider });
+    this.logger = logger ?? new Logger({ library: this.config.provider });
 
     this.providerMetrics = new ProviderMetricsManager({ enabled: true });
 
@@ -61,15 +71,57 @@ export abstract class BaseHttpClient {
     return `${apiKey.substring(0, 4)}****${apiKey.substring(apiKey.length - 4)}`;
   }
 
-  protected getDefaultApiKey(options: any): string {
-    return defaultApiKey;
+
+  protected normalizeHeaders(headers: RequestInit['headers']): Record<string, string> {
+    const result: Record<string, string> = {};
+
+    if (!headers) return result;
+
+    if (Array.isArray(headers)) {
+      for (const entry of headers) {
+        if (!Array.isArray(entry)) continue;
+        const [key, value] = entry;
+        if (key === undefined || value === undefined) continue;
+        result[String(key)] = String(value);
+      }
+      return result;
+    }
+
+    if ((typeof headers.forEach) === 'function') {
+      headers.forEach((value: string, key: string) => {
+        result[String(key)] = String(value);
+      });
+      return result;
+    }
+
+    for (const [key, value] of Object.entries(headers as Record<string, string>)) {
+      result[String(key)] = String(value);
+    }
+
+    return result;
+  }
+
+  private getDefaultApiKey(config: GeneralRequestConfig): string {
+    const normalizedHeaders = this.normalizeHeaders(config.headers);
+    // try lowercase, uppercase, and original case
+    if (this.config.apiKeyHeader === undefined) {
+      return defaultApiKey;
+    }
+
+    const headers = [
+      this.config.apiKeyHeader,
+      this.config.apiKeyHeader.toLowerCase(),
+      this.config.apiKeyHeader.toUpperCase(),
+    ];
+    const apiKey = headers.map(header => normalizedHeaders[header]).find(Boolean);
+    return apiKey ?? defaultApiKey;
   }
 
   protected generateRequestId(): string {
     return `req_${Date.now()}_${Math.random().toString(36).substring(2, 9)}`;
   }
 
-  protected calculateRequestSize(data?: any): number | undefined {
+  protected calculateRequestSize(data?: unknown): number | undefined {
     if (!data) return undefined;
 
     if (typeof data === 'string') {
@@ -90,15 +142,15 @@ export abstract class BaseHttpClient {
     }
   }
 
-  protected calculateResponseSizeFromHeaders(headers: Record<string, any>): number | undefined {
-    const contentLength = headers['content-length'] || headers['Content-Length'];
-    if (contentLength) {
+  protected calculateResponseSizeFromHeaders(headers: Record<string, unknown>): number | undefined {
+    const contentLength = headers['content-length'] ?? headers['Content-Length'];
+    if (typeof contentLength === 'string' && contentLength.length > 0) {
       return parseInt(contentLength, 10);
     }
     return undefined;
   }
 
-  protected calculateResponseSizeFromData(data?: any): number | undefined {
+  protected calculateResponseSizeFromData(data?: unknown): number | undefined {
     if (!data) return undefined;
 
     try {
@@ -108,20 +160,25 @@ export abstract class BaseHttpClient {
     }
   }
 
-  protected parseUrl(url: string) {
+  protected parseUrl(url: string): { host: string; pathname: string; params: Record<string, string> } {
     try {
       const parsedUrl = new URL(url);
+      const host = parsedUrl.hostname && parsedUrl.hostname.length > 0 ? parsedUrl.hostname : 'unknown';
+      const pathname = parsedUrl.pathname && parsedUrl.pathname.length > 0 ? parsedUrl.pathname : '/';
       return {
-        host: parsedUrl.hostname || 'unknown',
-        pathname: parsedUrl.pathname || '/',
+        host,
+        pathname,
         params: Object.fromEntries(parsedUrl.searchParams.entries()),
       };
     } catch {
       // Fallback for relative URLs
+      const [rawPath, rawQuery] = url.split('?');
+      const pathname = rawPath && rawPath.length > 0 ? rawPath : '/';
+      const query = rawQuery ?? '';
       return {
         host: 'localhost',
-        pathname: url.split('?')[0] || '/',
-        params: Object.fromEntries(new URLSearchParams(url.split('?')[1] || '').entries()),
+        pathname,
+        params: Object.fromEntries(new URLSearchParams(query).entries()),
       };
     }
   }
@@ -148,18 +205,18 @@ export abstract class BaseHttpClient {
   }
 
   protected createRequestInfo(
-    config: InternalAxiosRequestConfig,
+    config: GeneralRequestConfig,
   ): RequestInfo {
     const _apikey = this.config.getApiKey(config);
     const headersRecord = this.normalizeHeaders(config.headers);
     const sanitizedHeaders = this.sanitizeHeaders(headersRecord, _apikey);
 
     const apiKey = this.hashApiKey(_apikey);
-    const method = config.method?.toUpperCase() || 'GET';
-    const url = config.url || '';
+    const method = config.method ? config.method.toUpperCase() : 'GET';
+    const url = config.url ?? '';
     const requestId = this.generateRequestId();
     const { host, pathname, params } = this.parseUrl(url);
-    const requestSize = this.calculateRequestSize(config.data);
+    const requestSize = this.calculateRequestSize(config.body);
 
     return {
       requestId,
@@ -171,27 +228,13 @@ export abstract class BaseHttpClient {
       path: pathname,
       headers: sanitizedHeaders,
       params,
-      body: config.data,
+      body: config.body,
       ...(requestSize !== undefined && { requestSize }),
     };
   }
 
-  private normalizeHeaders(rawHeaders: InternalAxiosRequestConfig['headers']): Record<string, any> {
-    const headers: Record<string, any> = {};
-
-    if (!rawHeaders) return headers;
-
-    const candidate = rawHeaders as any;
-
-    if (candidate && typeof candidate.toJSON === 'function') {
-      return { ...candidate.toJSON() };
-    }
-
-    return { ...(candidate as Record<string, any>) };
-  }
-
-  protected sanitizeHeaders(headers: Record<string, any>, apiKey: string): Record<string, any> {
-    const sanitized: Record<string, any> = {};
+  protected sanitizeHeaders(headers: Record<string, string>, apiKey: string): Record<string, string> {
+    const sanitized: Record<string, string> = {};
     const apiKeyHeader = this.config.apiKeyHeader?.toLowerCase();
     const redactedHeaders = this.config.redactedHeaders?.map(header => header.toLowerCase()) ?? [];
 
@@ -215,7 +258,7 @@ export abstract class BaseHttpClient {
 
   protected processRequestStart(
     requestInfo: RequestInfo,
-  ): { span: any; startTime: number } {
+  ): { span: Span | null; startTime: number } {
     const startTime = Date.now();
 
     // Create request span for tracing
@@ -269,7 +312,7 @@ export abstract class BaseHttpClient {
     responseContext?: ErrorContext,
   ): RequestInfo {
     const duration = Date.now() - requestMetadata.startTime;
-    const requestInfo: RequestInfo = requestMetadata.requestInfo;
+    const { requestInfo } = requestMetadata;
 
     // Record provider error metrics
     this.providerMetrics.recordRequestError(
@@ -291,12 +334,12 @@ export abstract class BaseHttpClient {
       this.requestTracer.logFailedRequestDetails(
         requestInfo,
         error,
-        responseContext || {},
+        responseContext ?? {},
       );
     }
 
     // axios error may have response with status code
-    const statusCode = (error as any).response?.status || 501;
+    const statusCode = (error as { response?: { status?: number } }).response?.status ?? 501;
     // Finish request span with error
     this.requestTracer.finishRequestSpan(
       requestMetadata.span,
@@ -305,15 +348,6 @@ export abstract class BaseHttpClient {
     );
 
     return requestInfo;
-  }
-
-  // Public API methods
-  setConfig(config: Partial<BaseWrapperConfig>): void {
-    this.config = { ...this.config, ...config };
-  }
-
-  getConfig(): Readonly<Required<BaseWrapperConfig>> {
-    return this.config;
   }
 
   getProviderMetricsManager(): ProviderMetricsManager {

@@ -5,7 +5,9 @@ export interface ProviderMetricsConfig {
   enabled: boolean;
   meterName?: string;
   meterVersion?: string;
+  // eslint-disable-next-line no-unused-vars
   getStatusCategory?: (statusCode: number | string) => string;
+  // eslint-disable-next-line no-unused-vars
   isSuccessStatus?: (statusCode: number) => boolean;
 }
 
@@ -51,7 +53,7 @@ export class ProviderMetricsManager {
       meterName: 'api-provider-metrics',
       meterVersion: '1.0.0',
       getStatusCategory: this.getStatusCategory.bind(this),
-      isSuccessStatus: (statusCode: number) => statusCode >= 200 && statusCode < 400,
+      isSuccessStatus: (statusCode: number): boolean => statusCode >= 200 && statusCode < 400,
       ...config,
     };
 
@@ -64,7 +66,7 @@ export class ProviderMetricsManager {
     this.initializeMetrics();
   }
 
-  private initializeMetrics() {
+  private initializeMetrics(): void {
     // API Provider latency histogram
     this.metrics.providerLatency = this.meter.createHistogram('api_provider_latency_ms', {
       description: 'API provider request latency in milliseconds, will ignore failed requests',
@@ -117,7 +119,7 @@ export class ProviderMetricsManager {
   private recordResponseSize(
     attributes: BaseProviderLabels,
     responseSize: number,
-  ) {
+  ): void {
     this.metrics.responseSize.record(responseSize, {
       provider: attributes.provider,
       api_key: attributes.api_key,
@@ -128,7 +130,7 @@ export class ProviderMetricsManager {
   private recordRequestSize(
     attributes: BaseProviderLabels,
     requestSize: number,
-  ) {
+  ): void {
     this.metrics.requestSize.record(requestSize, {
       provider: attributes.provider,
       api_key: attributes.api_key,
@@ -138,8 +140,8 @@ export class ProviderMetricsManager {
 
   private changeActiveRequests(
     attributes: BaseProviderLabels,
-    delta: number
-  ) {
+    delta: number,
+  ): void {
     this.metrics.activeRequests.add(delta, {
       provider: attributes.provider,
       api_key: attributes.api_key,
@@ -148,8 +150,8 @@ export class ProviderMetricsManager {
   }
 
   private incrementProviderRequests(
-    attributes: FullProviderLabels
-  ) {
+    attributes: FullProviderLabels,
+  ): void {
     this.metrics.providerRequests.add(1, {
       provider: attributes.provider,
       api_key: attributes.api_key,
@@ -162,8 +164,8 @@ export class ProviderMetricsManager {
   }
 
   private incrementProviderSuccesses(
-    attributes: FullProviderLabels
-  ) {
+    attributes: FullProviderLabels,
+  ): void {
     this.metrics.providerSuccesses.add(1, {
       provider: attributes.provider,
       api_key: attributes.api_key,
@@ -175,8 +177,8 @@ export class ProviderMetricsManager {
   }
 
   private incrementProviderFailures(
-    attributes: FullProviderLabels
-  ) {
+    attributes: FullProviderLabels,
+  ): void {
     this.metrics.providerFailures.add(1, {
       provider: attributes.provider,
       api_key: attributes.api_key,
@@ -190,7 +192,7 @@ export class ProviderMetricsManager {
   private recordProviderLatency(
     attributes: BaseProviderLabels,
     duration: number,
-  ) {
+  ): void {
     this.metrics.providerLatency.record(duration, {
       provider: attributes.provider,
       api_key: attributes.api_key,
@@ -198,7 +200,7 @@ export class ProviderMetricsManager {
     });
   }
 
-  recordRequestStart(requestInfo: RequestInfo) {
+  recordRequestStart(requestInfo: RequestInfo): void  {
     if (!this.config.enabled) return;
 
     // Increment active requests
@@ -216,7 +218,7 @@ export class ProviderMetricsManager {
     }
   }
 
-  recordRequestComplete(responseInfo: ResponseInfo) {
+  recordRequestComplete(responseInfo: ResponseInfo): void {
     if (!this.config.enabled) return;
 
     // Record latency
@@ -300,7 +302,7 @@ export class ProviderMetricsManager {
   }
 
   // Get the OpenTelemetry meter for advanced usage
-  getMeter(): any {
+  getMeter(): Meter {
     return this.meter;
   }
 }
@@ -315,9 +317,7 @@ let defaultProviderMetrics: ProviderMetricsManager | null = null;
 export function initializeProviderMetrics(
   config?: ProviderMetricsConfig,
 ): ProviderMetricsManager {
-  if (!defaultProviderMetrics) {
-    defaultProviderMetrics = new ProviderMetricsManager(config);
-  }
+  defaultProviderMetrics ??= new ProviderMetricsManager(config);
   return defaultProviderMetrics;
 }
 
@@ -326,8 +326,6 @@ export function initializeProviderMetrics(
  * @returns ProviderMetricsManager instance or creates new one if not exists
  */
 export function getProviderMetrics(): ProviderMetricsManager {
-  if (!defaultProviderMetrics) {
-    defaultProviderMetrics = new ProviderMetricsManager();
-  }
+  defaultProviderMetrics ??= new ProviderMetricsManager();
   return defaultProviderMetrics;
 }

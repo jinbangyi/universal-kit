@@ -1,5 +1,5 @@
 // Mock OpenTelemetry modules
-// import { jest } from '@jest/globals';
+import { jest } from '@jest/globals';
 
 jest.mock('@opentelemetry/api', () => ({
   trace: {

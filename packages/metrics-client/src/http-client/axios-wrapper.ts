@@ -6,12 +6,11 @@ import axios, {
   InternalAxiosRequestConfig,
 } from 'axios';
 import { Logger } from '@universal-kit/logger';
-import { BaseHttpClient, defaultApiKey } from './common.js';
-import type { BaseWrapperConfig } from './common.js';
-import type { AxiosRequestMetadata, ErrorContext, RequestInfo } from '../typing.js';
+import { BaseHttpClient, GeneralRequestConfig, type BaseWrapperConfig } from './common.js';
+import type { AxiosRequestMetadata, ErrorContext } from '../typing.js';
 
 // Axios-compatible interfaces
-export interface AxiosWrapperRequestConfig<D = any> extends AxiosRequestConfig<D> {
+export interface AxiosWrapperRequestConfig<TData = unknown> extends AxiosRequestConfig<TData> {
   skipMetrics?: boolean;
 }
 
@@ -25,7 +24,6 @@ export class AxiosWrapper extends BaseHttpClient {
   constructor(config: BaseWrapperConfig, logger?: Logger) {
     // Create a temporary bound function after super call
     const baseConfig: BaseWrapperConfig = {
-      getApiKey: (options: InternalAxiosRequestConfig) => this.getApiKeyFromConfig(options),
       ...config,
       provider: `${config.provider}:${AxiosWrapper.name}`,
     };
@@ -38,23 +36,24 @@ export class AxiosWrapper extends BaseHttpClient {
     this.setupInterceptors();
   }
 
-  private getApiKeyFromConfig(config?: AxiosRequestConfig): string {
-    const apikey = config?.headers ?
-      (config.headers as Record<string, string>)[this.config.apiKeyHeader] :
-      undefined;
-    if (apikey) return apikey;
-    return defaultApiKey;
+  private convertConfigToRequestInfo(config: InternalAxiosRequestConfig): GeneralRequestConfig {
+    return {
+      url: config.url ?? '',
+      method: config.method ?? 'GET',
+      headers: config.headers,
+      body: config.data,
+    };
   }
 
-  private setupInterceptors() {
+  private setupInterceptors(): void {
     // Request interceptor
     this.axiosInstance.interceptors.request.use(
       config => {
         if (!config.skipMetrics) {
-          const requestInfo = this.createRequestInfo(config);
+          const requestInfo = this.createRequestInfo(this.convertConfigToRequestInfo(config));
           const { span, startTime } = this.processRequestStart(requestInfo);
 
-          const existingMetadata = config.metadata || {};
+          const existingMetadata = config.metadata ?? {};
           config.metadata = {
             ...existingMetadata,
             startTime,
@@ -67,7 +66,7 @@ export class AxiosWrapper extends BaseHttpClient {
       error => {
         return Promise.reject(error);
       },
-      { synchronous: true, runWhen: () => /* This function returns true */ true }
+      { synchronous: true, runWhen: () => /* This function returns true */ true },
     );
 
     // Response interceptor
@@ -87,8 +86,11 @@ export class AxiosWrapper extends BaseHttpClient {
     );
   }
 
-  private processResponse(response: AxiosResponse) {
-    const requestMetadata = (response.config.metadata as AxiosRequestMetadata) || {};
+  private processResponse(response: AxiosResponse): void {
+    const requestMetadata: AxiosRequestMetadata | undefined = response.config.metadata;
+    if (!requestMetadata) {
+      return;
+    }
     let responseSize: number = 0;
     // Calculate response size if available
     const contentLength = response.headers['content-length'];
@@ -103,13 +105,14 @@ export class AxiosWrapper extends BaseHttpClient {
     }
     const statusCode = response.status;
 
-    return this.processRequestComplete(
-      requestMetadata, statusCode, responseSize
-    );
+    this.processRequestComplete(requestMetadata, statusCode, responseSize);
   }
 
-  private processError(error: AxiosError) {
-    const requestMetadata = (error.config?.metadata as AxiosRequestMetadata) || {};
+  private processError(error: AxiosError): void {
+    const requestMetadata: AxiosRequestMetadata | undefined = error.config?.metadata;
+    if (!requestMetadata) {
+      return;
+    }
     const responseMessage = error.response?.statusText;
     const responseStatus = error.response?.status;
     const errorContext: ErrorContext = {
@@ -126,11 +129,11 @@ export class AxiosWrapper extends BaseHttpClient {
     return this.axiosInstance.request(config);
   }
 
-  get<T = any, R = AxiosResponse<T>>(url: string, config?: AxiosWrapperRequestConfig): Promise<R> {
+  get<T = unknown, R = AxiosResponse<T>>(url: string, config?: AxiosWrapperRequestConfig<T>): Promise<R> {
     return this.axiosInstance.get<T, R>(url, config);
   }
 
-  post<T = any, R = AxiosResponse<T>>(url: string, data?: T, config?: AxiosWrapperRequestConfig): Promise<R> {
+  post<T = unknown, R = AxiosResponse<T>>(url: string, data?: T, config?: AxiosWrapperRequestConfig<T>): Promise<R> {
     return this.axiosInstance.post<T, R>(url, data, config);
   }
 
@@ -147,7 +150,7 @@ declare module 'axios' {
     skipMetrics?: boolean;
   }
 
-  interface InternalAxiosRequestConfig<D = any> {
+  interface InternalAxiosRequestConfig {
     metadata?: AxiosRequestMetadata;
     skipMetrics?: boolean;
   }

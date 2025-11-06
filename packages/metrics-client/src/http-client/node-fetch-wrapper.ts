@@ -1,7 +1,6 @@
 import { Logger } from '@universal-kit/logger';
-import { BaseHttpClient, defaultApiKey } from './common.js';
-import type { BaseWrapperConfig } from './common.js';
-import type { AxiosRequestMetadata, RequestInfo } from '../typing.js';
+import { BaseHttpClient, type BaseWrapperConfig } from './common.js';
+import type { AxiosRequestMetadata } from '../typing.js';
 
 type InstrumentedRequest = Request & { skipMetrics?: boolean };
 
@@ -9,17 +8,12 @@ interface InstrumentedRequestInit extends RequestInit {
   skipMetrics?: boolean;
 }
 
-export interface NodeFetchWrapperConfig extends BaseWrapperConfig {
-  getApiKey?: (options: RequestInit) => string;
-}
-
 export class NodeFetchWrapper extends BaseHttpClient {
   constructor(
-    config: NodeFetchWrapperConfig,
+    config: BaseWrapperConfig,
     logger?: Logger,
   ) {
     const baseConfig: BaseWrapperConfig = {
-      getApiKey: (options: RequestInit) => this.getApiKeyFromOptions(options),
       ...config,
       provider: `${config.provider}:${NodeFetchWrapper.name}`,
     };
@@ -27,89 +21,14 @@ export class NodeFetchWrapper extends BaseHttpClient {
     super(baseConfig, logger);
   }
 
-  private getApiKeyFromOptions(options: RequestInit = {}): string {
-    const headers = this.headersToRecord(options.headers);
-
-    if (this.config.apiKeyHeader) {
-      const headerName = this.config.apiKeyHeader.toLowerCase();
-
-      for (const [key, value] of Object.entries(headers)) {
-        if (key.toLowerCase() === headerName && value) {
-          return value;
-        }
-      }
-    }
-
-    return defaultApiKey;
-  }
-
-  private headersToRecord(headers?: RequestInit['headers']): Record<string, string> {
-    const result: Record<string, string> = {};
-
-    if (!headers) return result;
-
-    if (Array.isArray(headers)) {
-      for (const entry of headers) {
-        if (!Array.isArray(entry)) continue;
-        const [key, value] = entry;
-        if (key === undefined || value === undefined) continue;
-        result[String(key)] = String(value);
-      }
-      return result;
-    }
-
-    if (typeof (headers as any).forEach === 'function') {
-      (headers as any).forEach((value: string, key: string) => {
-        result[String(key)] = String(value);
-      });
-      return result;
-    }
-
-    for (const [key, value] of Object.entries(headers as Record<string, string>)) {
-      result[String(key)] = String(value);
-    }
-
-    return result;
-  }
-
-  private createRequestInfoForFetch(
-    method: string,
-    url: string,
-    options: InstrumentedRequestInit,
-  ): RequestInfo {
-    const rawHeaders = this.headersToRecord(options.headers);
-    const apiKey = this.config.getApiKey(options);
-    const hashedApiKey = this.hashApiKey(apiKey);
-    const { host, pathname, params } = this.parseUrl(url);
-    const requestSize = this.calculateRequestSize(options.body);
-
-    const requestInfo: RequestInfo = {
-      requestId: this.generateRequestId(),
-      provider: this.config.provider,
-      apiKey: hashedApiKey,
-      url,
-      host,
-      method,
-      path: pathname,
-      headers: this.sanitizeHeaders(rawHeaders, apiKey),
-      params,
-      body: options.body,
-    };
-
-    if (requestSize !== undefined) {
-      requestInfo.requestSize = requestSize;
-    }
-
-    return requestInfo;
-  }
-
   private stripInstrumentationOptions(options: InstrumentedRequestInit): RequestInit {
-    const { skipMetrics: _skipMetrics, ...rest } = options;
-    return { ...rest };
+    const clonedOptions = { ...options };
+    delete clonedOptions.skipMetrics;
+    return clonedOptions;
   }
 
   private async determineResponseSize(response: Response): Promise<number> {
-    const headersRecord = this.headersToRecord(response.headers);
+    const headersRecord = this.normalizeHeaders(response.headers);
     const headerSize = this.calculateResponseSizeFromHeaders(headersRecord);
 
     if (headerSize !== undefined) {
@@ -137,13 +56,18 @@ export class NodeFetchWrapper extends BaseHttpClient {
       return fetch(url, requestInit);
     }
 
-    const requestInfo = this.createRequestInfoForFetch(method, url, options);
+    const requestInfo = this.createRequestInfo({
+      method,
+      url,
+      headers: options.headers,
+      body: options.body,
+    });
     const { span, startTime } = this.processRequestStart(requestInfo);
-    const metadata = {
+    const metadata: AxiosRequestMetadata = {
       startTime,
       requestInfo,
       span: span ?? null,
-    } as AxiosRequestMetadata;
+    };
 
     try {
       const response = await fetch(url, requestInit);
@@ -203,22 +127,31 @@ export class NodeFetchWrapper extends BaseHttpClient {
   }
 
   async fetch(input: string | URL | Request, init?: InstrumentedRequestInit): Promise<Response> {
-    const baseOptions: InstrumentedRequestInit = { ...(init || {}) };
+    const baseOptions: InstrumentedRequestInit = { ...(init ?? {}) };
     let url: string;
 
     if (input instanceof Request) {
       const request = input as InstrumentedRequest;
-      url = request.url;
-      baseOptions.method = baseOptions.method ?? request.method;
-      baseOptions.headers = baseOptions.headers ?? request.headers;
-      if (baseOptions.body === undefined && request.body !== null) {
-        baseOptions.body = request.body as any;
+      const {
+        url: requestUrl,
+        method: requestMethod,
+        headers: requestHeaders,
+        body: requestBody,
+        signal: requestSignal,
+        skipMetrics: requestSkipMetrics,
+      } = request;
+
+      url = requestUrl;
+      baseOptions.method = baseOptions.method ?? requestMethod;
+      baseOptions.headers = baseOptions.headers ?? requestHeaders;
+      if (baseOptions.body === undefined && requestBody !== null) {
+        baseOptions.body = requestBody;
       }
       if (baseOptions.signal === undefined) {
-        baseOptions.signal = request.signal;
+        baseOptions.signal = requestSignal;
       }
-      if (baseOptions.skipMetrics === undefined && request.skipMetrics !== undefined) {
-        baseOptions.skipMetrics = request.skipMetrics;
+      if (baseOptions.skipMetrics === undefined && requestSkipMetrics !== undefined) {
+        baseOptions.skipMetrics = requestSkipMetrics;
       }
     } else {
       url = input instanceof URL ? input.toString() : input;

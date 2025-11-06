@@ -11,7 +11,7 @@ export default [
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
-        project: ['./tsconfig.json', './packages/*/tsconfig.json'],
+        project: ['./tsconfig.json', './packages/**/tsconfig.json', './packages/**/tsconfig.spec.json'],
       },
       globals: {
         console: 'readonly',
@@ -57,7 +57,10 @@ export default [
     },
     rules: {
       // TypeScript specific rules
-      '@typescript-eslint/no-unused-vars': ['error', { argsIgnorePattern: '^_' }],
+      '@typescript-eslint/no-unused-vars': [
+        'error',
+        { argsIgnorePattern: '^_', varsIgnorePattern: '^_' }
+      ],
       '@typescript-eslint/explicit-function-return-type': 'warn',
       '@typescript-eslint/no-explicit-any': 'warn', // Changed to warn to allow intentional any in examples
       '@typescript-eslint/no-non-null-assertion': 'warn',
@@ -128,7 +131,6 @@ export default [
       'operator-assignment': 'error',
       'operator-linebreak': ['error', 'after'],
       'padded-blocks': ['error', 'never'],
-      'quote-props': ['error', 'as-needed'],
       'wrap-iife': 'error',
       'wrap-regex': 'error',
       'yoda': 'error',
@@ -141,13 +143,16 @@ export default [
       parserOptions: {
         ecmaVersion: 2022,
         sourceType: 'module',
-        project: undefined, // Disable project checking for test files
+        project: null, // Disable project checking for test files
       },
     },
     rules: {
       '@typescript-eslint/no-explicit-any': 'off', // Allow any in test files
       'no-console': 'off', // Allow console in test files
       '@typescript-eslint/no-unused-vars': 'off', // Allow unused variables in test files
+      '@typescript-eslint/prefer-nullish-coalescing': 'off',
+      '@typescript-eslint/prefer-optional-chain': 'off',
+      '@typescript-eslint/no-unnecessary-type-assertion': 'off',
     },
   },
   {

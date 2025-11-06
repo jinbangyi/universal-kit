@@ -17,7 +17,7 @@ interface RequestEvent extends RequestInfo {
   statusCode?: number;
   duration?: number;
   error?: Error;
-  metadata?: Record<string, any>;
+  metadata?: Record<string, unknown>;
 }
 
 export class RequestTracer {
@@ -64,7 +64,7 @@ export class RequestTracer {
     return span;
   }
 
-  logRequestEvent(event: RequestEvent) {
+  logRequestEvent(event: RequestEvent): void {
     if (!this.config.enabled || !this.config.logRequestEvents) return;
 
     const baseMessage = `Request ${event.type.toUpperCase()} ${event.method} ${event.url}`;
@@ -100,7 +100,7 @@ export class RequestTracer {
       case 'error':
         this.logger.error(
           baseMessage,
-          event.error || new Error('Unknown error'),
+          event.error ?? new Error('Unknown error'),
           fullLogData,
         );
         break;
@@ -118,7 +118,7 @@ export class RequestTracer {
     requestInfo: RequestInfo,
     error: Error,
     responseContext: ErrorContext,
-  ) {
+  ): void {
     if (!this.config.enabled || !this.config.traceFailedRequests) return;
 
     const errorDetails = {
@@ -149,7 +149,9 @@ export class RequestTracer {
     );
   }
 
-  finishRequestSpan(span: Span, metrics: ResponseInfo, extraAttributes?: Record<string, string>) {
+  finishRequestSpan(
+    span: Span | null, metrics: ResponseInfo, extraAttributes?: Record<string, string>,
+  ): void {
     if (!span || !this.config.enabled) return;
 
     span.setAttributes({
@@ -175,22 +177,10 @@ export class RequestTracer {
     span.end();
   }
 
-  setSpanAttributes(span: any, attributes: Record<string, any>): void {
-    if (!span || !this.config.enabled) return;
-
-    span.setAttributes(attributes);
-  }
-
-  addSpanEvent(span: any, name: string, attributes?: Record<string, any>): void {
-    if (!span || !this.config.enabled) return;
-
-    span.addEvent(name, attributes);
-  }
-
-  private sanitizeRequest(request: RequestInfo): any {
+  private sanitizeRequest(request: RequestInfo): Record<string, unknown> | undefined {
     if (!request) return undefined;
 
-    const sanitized: any = {
+    const sanitized: Record<string, unknown> = {
       headers: request.headers,
       data: undefined,
     };
@@ -212,7 +202,7 @@ export class RequestTracer {
   }
 
   // Get current span from context
-  getCurrentSpan(): any {
+  getCurrentSpan(): Span | undefined {
     return trace.getSpan(otelContext.active());
   }
 

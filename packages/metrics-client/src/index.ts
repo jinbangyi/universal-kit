@@ -1,5 +1,5 @@
 export { BaseHttpClient, type BaseWrapperConfig } from './http-client/common.js';
-export { NodeFetchWrapper, type NodeFetchWrapperConfig } from './http-client/node-fetch-wrapper.js';
+export { NodeFetchWrapper } from './http-client/node-fetch-wrapper.js';
 export { AxiosWrapper, type AxiosWrapperRequestConfig } from './http-client/axios-wrapper.js';
 
 // Export enhanced metrics and tracing functionality

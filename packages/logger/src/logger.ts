@@ -1,38 +1,54 @@
-import { logs, SeverityNumber, Logger as OtelLogger } from '@opentelemetry/api-logs';
+import { logs, Logger as OtelLogger } from '@opentelemetry/api-logs';
 import type { Attributes, AttributeValue } from '@opentelemetry/api';
 import winston from 'winston';
 
 type LogLevel = 'debug' | 'verbose' | 'info' | 'notice' | 'warn' | 'error';
-const serviceName = process.env.OTEL_SERVICE_NAME || 'universal-kit';
-const serviceVersion = process.env.OTEL_SERVICE_VERSION || '0.0.1';
-const globalLogLevel = process.env.KIT_LOG_LEVEL || (process.env.OTEL_LOG_LEVEL || 'info');
+const LOG_LEVEL_ORDER: LogLevel[] = ['debug', 'verbose', 'info', 'notice', 'warn', 'error'];
+
+const isLogLevel = (value: string | undefined | null): value is LogLevel => {
+  if (value === null || value === undefined) {
+    return false;
+  }
+  return (LOG_LEVEL_ORDER as readonly string[]).includes(value);
+};
+
+const resolveLogLevel = (value?: string | null): LogLevel =>
+  isLogLevel(value) ? value : 'info';
+
+const serviceName = process.env.OTEL_SERVICE_NAME ?? 'universal-kit';
+const serviceVersion = process.env.OTEL_SERVICE_VERSION ?? '0.0.1';
+const globalLogLevel = resolveLogLevel(process.env.KIT_LOG_LEVEL ?? process.env.OTEL_LOG_LEVEL);
 
 export interface LoggerConfig {
   library: string;
-  level?: string;
+  level?: LogLevel;
   includeMetadata?: boolean;
-  customFields?: Record<string, any>;
+  customFields?: Record<string, unknown>;
   enableOtel?: boolean;
   otelLoggerName?: string;
   otelLoggerVersion?: string;
 }
 
-interface LogData {
+type NormalizedLoggerConfig = {
+  library: string;
+  level: LogLevel;
+  includeMetadata: boolean;
+  customFields: Record<string, unknown>;
+  enableOtel: boolean;
+  otelLoggerName: string;
+  otelLoggerVersion: string;
+};
+
+interface LogData extends Record<string, unknown> {
   library: string;
   requestId?: string;
-  [key: string]: any;
 }
 
-interface WinstonInfo {
+interface WinstonInfo extends Record<string, unknown> {
   timestamp?: string;
   level?: string;
   message?: string;
-  metadata?: {
-    library?: string;
-    requestId?: string;
-    [key: string]: any;
-  };
-  [key: string]: any;
+  metadata?: Record<string, unknown>;
 }
 
 const universalKitFormat = winston.format.combine(
@@ -48,13 +64,19 @@ const universalKitFormat = winston.format.combine(
     const { timestamp } = winstonInfo;
     const { level } = winstonInfo;
     const { message } = winstonInfo;
-    const metadata = winstonInfo.metadata || {};
-    const library = metadata.library || 'unknown';
-    const { requestId } = metadata;
+    const metadata: Record<string, unknown> = winstonInfo.metadata ?? {};
+    const library = typeof metadata.library === 'string' ? metadata.library : 'unknown';
+    const requestId = typeof metadata.requestId === 'string' ? metadata.requestId : undefined;
 
     let metadataStr = '';
-    const metaObj: Record<string, any> = { ...metadata };
-    if (metaObj.library === metaObj.provider) delete metaObj.provider;
+    const metaObj: Record<string, unknown> = { ...metadata };
+    if (
+      typeof metaObj.library === 'string' &&
+      typeof metaObj.provider === 'string' &&
+      metaObj.library === metaObj.provider
+    ) {
+      delete metaObj.provider;
+    }
     delete metaObj.library;
     delete metaObj.requestId;
 
@@ -62,7 +84,7 @@ const universalKitFormat = winston.format.combine(
       metadataStr = ` ${JSON.stringify(metaObj)}`;
     }
 
-    const levelStr = level?.toUpperCase() || 'INFO';
+    const levelStr = level?.toUpperCase() ?? 'INFO';
     if (requestId) {
       return `[${timestamp}] ${levelStr} [${library}:${requestId}] ${message}${metadataStr}`;
     }
@@ -80,19 +102,21 @@ const levelsNumber: Record<LogLevel, number> = {
 };
 
 export class Logger {
-  private winston: winston.Logger;
-  private config: Required<LoggerConfig>;
+  private readonly winston: winston.Logger;
+  private readonly config: NormalizedLoggerConfig;
   private otelLogger?: OtelLogger;
 
   constructor(config: LoggerConfig) {
+    const resolvedLevel = config.level ? resolveLogLevel(config.level) : globalLogLevel;
+
     this.config = {
       library: config.library,
-      level: config.level || globalLogLevel,
+      level: resolvedLevel,
       includeMetadata: config.includeMetadata ?? true,
-      customFields: { ...config.customFields },
+      customFields: { ...(config.customFields ?? {}) },
       enableOtel: config.enableOtel ?? true,
-      otelLoggerName: config.otelLoggerName || serviceName,
-      otelLoggerVersion: config.otelLoggerVersion || serviceVersion,
+      otelLoggerName: config.otelLoggerName ?? serviceName,
+      otelLoggerVersion: config.otelLoggerVersion ?? serviceVersion,
     };
 
     const transports: winston.transport[] = [];
@@ -113,36 +137,35 @@ export class Logger {
     this.initializeOtel();
   }
 
-  debug(message: string, metadata?: Record<string, any>): void {
+  debug(message: string, metadata?: Record<string, unknown>): void {
     if (!this.shouldLog('debug')) return;
     const logData = this.createLogData(metadata);
     this.winston.debug(message, logData);
-    this.winston.notice
     this.emitOtelLog('debug', message, logData);
   }
 
-  verbose(message: string, metadata?: Record<string, any>): void {
+  verbose(message: string, metadata?: Record<string, unknown>): void {
     if (!this.shouldLog('verbose')) return;
     const logData = this.createLogData(metadata);
     this.winston.verbose(message, logData);
     this.emitOtelLog('verbose', message, logData);
   }
 
-  info(message: string, metadata?: Record<string, any>): void {
+  info(message: string, metadata?: Record<string, unknown>): void {
     if (!this.shouldLog('info')) return;
     const logData = this.createLogData(metadata);
     this.winston.info(message, logData);
     this.emitOtelLog('info', message, logData);
   }
 
-  warn(message: string, metadata?: Record<string, any>): void {
+  warn(message: string, metadata?: Record<string, unknown>): void {
     if (!this.shouldLog('warn')) return;
     const logData = this.createLogData(metadata);
     this.winston.warn(message, logData);
     this.emitOtelLog('warn', message, logData);
   }
 
-  error(message: string, error?: Error, metadata?: Record<string, any>): void {
+  error(message: string, error?: Error, metadata?: Record<string, unknown>): void {
     if (!this.shouldLog('error')) return;
     const logData = this.createLogData(metadata, error);
     this.winston.error(message, logData);
@@ -157,7 +180,7 @@ export class Logger {
     this.winston.remove(transport);
   }
 
-  child(metadata: Record<string, any>): winston.Logger {
+  child(metadata: Record<string, unknown>): winston.Logger {
     return this.winston.child(metadata);
   }
 
@@ -169,7 +192,7 @@ export class Logger {
     });
   }
 
-  getConfig(): Readonly<LoggerConfig> {
+  getConfig(): Readonly<NormalizedLoggerConfig> {
     return Object.freeze({ ...this.config });
   }
 
@@ -193,18 +216,22 @@ export class Logger {
 
   private shouldLog(level: LogLevel): boolean {
     const levels: Record<LogLevel, number> = levelsNumber;
-    return levels[level] <= levels[this.config.level as LogLevel];
+    return levels[level] <= levels[this.config.level];
   }
 
   private createLogData(
-    metadata?: Record<string, any>,
+    metadata?: Record<string, unknown>,
     error?: Error,
   ): LogData {
+    const library =
+      typeof metadata?.library === 'string' ? metadata.library : this.config.library;
+    const requestId =
+      typeof metadata?.requestId === 'string' ? metadata.requestId : undefined;
+
     const logData: LogData = {
       ...this.config.customFields,
-      // Priority: config.library first, then metadata.library if provided
-      library: metadata?.library || this.config.library,
-      requestId: metadata?.requestId,
+      library,
+      requestId,
     };
 
     if (error) {
@@ -264,7 +291,7 @@ export class Logger {
     return attributes;
   }
 
-  private normalizeAttributeValue(value: any): AttributeValue {
+  private normalizeAttributeValue(value: unknown): AttributeValue {
     if (value === null || value === undefined) {
       return 'null';
     }
@@ -278,20 +305,14 @@ export class Logger {
     }
 
     if (Array.isArray(value)) {
-      const simple = value.filter(
-        item => typeof item === 'string' || typeof item === 'number' || typeof item === 'boolean',
-      );
-
-      if (simple.length === value.length && simple.length > 0) {
-        if (simple.every(item => typeof item === 'string')) {
-          return simple;
-        }
-        if (simple.every(item => typeof item === 'number')) {
-          return simple;
-        }
-        if (simple.every(item => typeof item === 'boolean')) {
-          return simple;
-        }
+      if (value.every((item): item is string => typeof item === 'string')) {
+        return value;
+      }
+      if (value.every((item): item is number => typeof item === 'number')) {
+        return value;
+      }
+      if (value.every((item): item is boolean => typeof item === 'boolean')) {
+        return value;
       }
 
       return JSON.stringify(value);
