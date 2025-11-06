@@ -3,8 +3,6 @@ import {
   DiagConsoleLogger,
   DiagLogLevel,
   trace,
-  SpanKind,
-  SpanStatusCode,
 } from '@opentelemetry/api';
 import { getNodeAutoInstrumentations } from '@opentelemetry/auto-instrumentations-node';
 import { OTLPLogExporter } from '@opentelemetry/exporter-logs-otlp-http';
@@ -13,10 +11,10 @@ import { PrometheusExporter } from '@opentelemetry/exporter-prometheus';
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http';
 import {
   defaultResource,
-  emptyResource,
+  // emptyResource,
   resourceFromAttributes,
+  Resource,
 } from '@opentelemetry/resources';
-import { Resource } from '@opentelemetry/resources';
 import { BatchLogRecordProcessor } from '@opentelemetry/sdk-logs';
 import { PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics';
 import { NodeSDK } from '@opentelemetry/sdk-node';
@@ -35,9 +33,9 @@ function getEnvNumber(name: string, fallback: number): number {
   return Number.isFinite(value) && value > 0 ? value : fallback;
 }
 
-const serviceName = process.env.OTEL_SERVICE_NAME || 'universal-kit';
+const serviceName = process.env.OTEL_SERVICE_NAME ?? 'universal-kit';
 const serviceVersion =
-  process.env.OTEL_SERVICE_VERSION || '0.0.1';
+  process.env.OTEL_SERVICE_VERSION ?? '0.0.1';
 const metricExportTimeout = getEnvNumber('OTEL_METRIC_EXPORT_TIMEOUT', 30000);
 const prometheusPort = getEnvNumber('OTEL_PROMETHEUS_PORT', 9000);
 
@@ -49,8 +47,8 @@ type GlobalTelemetry = typeof globalThis & {
 
 const telemetryGlobals = globalThis as GlobalTelemetry;
 
-function configureDiagnostics() {
-  const level = (process.env.OTEL_LOG_LEVEL || '').toUpperCase();
+function configureDiagnostics(): void {
+  const level = (process.env.OTEL_LOG_LEVEL ?? '').toUpperCase();
   const levelMapping: Record<string, DiagLogLevel> = {
     ALL: DiagLogLevel.ALL,
     VERBOSE: DiagLogLevel.VERBOSE,
@@ -76,7 +74,7 @@ function buildResource(): Resource {
   return defaultResource().merge(resourceFromAttributes(resourceAttributes));
 }
 
-function createSdk() {
+function createSdk(): void {
   if (telemetryGlobals[globalSdkKey]) {
     return;
   }
@@ -91,9 +89,9 @@ function createSdk() {
     port: prometheusPort,
     withResourceConstantLabels: /^(service\.name|service\.version)$/, // turn resource attrs into default labels
   });
-  const resource = emptyResource().merge(resourceFromAttributes({
-    'serviceName': serviceName,
-  }));
+  // const resource = emptyResource().merge(resourceFromAttributes({
+  //   'serviceName': serviceName,
+  // }));
   const logExporter = new OTLPLogExporter();
   const otlpReader = new PeriodicExportingMetricReader({
     exporter: otlpExporter,
@@ -122,7 +120,7 @@ function createSdk() {
 
         '@opentelemetry/instrumentation-http': {
           ignoreIncomingRequestHook: (req: IncomingMessage) => {
-            const url = req.url || '';
+            const url = req.url ?? '';
             const isHealthCheck =
               url === '/health' || url.startsWith('/health/');
             const isMetrics = url === '/metrics' || url.startsWith('/metrics/');
@@ -135,7 +133,7 @@ function createSdk() {
             // https://signoz.io/docs/external-api-monitoring/overview/#how-it-works
             span.setAttribute(
               'telemetry.sdk.instrumentation',
-              'UndiciInstrumentation'
+              'UndiciInstrumentation',
             );
             span.setAttribute('net.peer.name', request.origin);
             span.setAttribute('http.url', request.origin + request.path);
@@ -145,12 +143,12 @@ function createSdk() {
             // https://signoz.io/docs/external-api-monitoring/overview/#how-it-works
             span.setAttribute(
               'telemetry.sdk.instrumentation',
-              'UndiciInstrumentation'
+              'UndiciInstrumentation',
             );
             span.setAttribute('net.peer.name', response.request.origin);
             span.setAttribute(
               'http.url',
-              response.request.origin + response.request.path
+              response.request.origin + response.request.path,
             );
             span.setAttribute('http.target', response.request.path);
           },

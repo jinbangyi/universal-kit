@@ -1,9 +1,17 @@
 {
   "name": "@universal-kit/logger",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "Structured logger with metadata support for API usage tracking",
-  "main": "dist/index.js",
-  "types": "dist/index.d.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.cjs"
+    }
+  },
   "license": "MIT",
   "repository": {
     "type": "git",
@@ -24,13 +32,13 @@
     "observability"
   ],
   "scripts": {
-    "build": "tsc src/index.ts src/logger.ts --outDir dist --declaration --target ES2022 --module CommonJS --moduleResolution node --esModuleInterop",
-    "dev": "tsc src/**/*.ts --outDir dist --declaration --target ES2022 --module CommonJS --moduleResolution node --esModuleInterop --watch",
+    "build": "tsup && tsc --project tsconfig.json --emitDeclarationOnly",
+    "dev": "tsup --watch",
     "lint": "eslint src/**/*.ts",
     "test": "jest",
     "test:watch": "jest --watch",
     "test:coverage": "jest --coverage",
-    "clean": "rm -rf dist node_modules"
+    "clean": "rm -rf dist"
   },
   "dependencies": {
     "@opentelemetry/api": "^1.9.0",
