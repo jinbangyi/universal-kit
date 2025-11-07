@@ -1,6 +1,6 @@
 # @universal-kit/metrics-client
 
-OpenTelemetry-based metrics HTTP client wrapper with API provider monitoring and enhanced tracing for universal-kit. This package provides both a native fetch-based client and an Axios-compatible wrapper with comprehensive provider-level metrics and detailed request tracing.
+OpenTelemetry-based metrics HTTP client wrapper with API provider monitoring and enhanced tracing for universal-kit. This package provides both a Node fetch-based client and an Axios-compatible wrapper with comprehensive provider-level metrics and detailed request tracing.
 
 ## Installation
 
@@ -22,12 +22,12 @@ npm install @universal-kit/metrics-client axios
 
 ## Usage
 
-### MeasuredHttpClient (Fetch-based)
+### NodeFetchWrapper (Node Fetch-based)
 
 ```typescript
-import { MeasuredHttpClient } from '@universal-kit/metrics-client';
+import { NodeFetchWrapper } from '@universal-kit/metrics-client';
 
-const client = new MeasuredHttpClient({
+const client = new NodeFetchWrapper({
   baseUrl: 'https://api.example.com',
   timeout: 5000,
   headers: {
@@ -55,12 +55,12 @@ try {
 }
 ```
 
-### MeasuredAxios (Axios-compatible)
+### AxiosWrapper (Axios-compatible)
 
 ```typescript
-import { MeasuredAxios, AxiosWrapperConfig } from '@universal-kit/metrics-client';
+import { AxiosWrapper, AxiosWrapperRequestConfig } from '@universal-kit/metrics-client';
 
-const config: AxiosWrapperConfig = {
+const config: AxiosWrapperRequestConfig = {
   provider: 'payment-provider',
   apiKey: 'pk_live_1234567890',
   apiKeyHeader: 'x-api-key',
@@ -73,7 +73,7 @@ const config: AxiosWrapperConfig = {
   logRequestEvents: true,
 };
 
-const axiosClient = new MeasuredAxios(config);
+const axiosClient = new AxiosWrapper(config);
 
 // Use as drop-in replacement for Axios with provider monitoring
 try {
@@ -90,7 +90,7 @@ try {
 }
 
 // Custom API key extraction from headers
-const customAxios = new MeasuredAxios({
+const customAxios = new AxiosWrapper({
   provider: 'custom-api',
   getApiKey: (config) => {
     // Custom logic to extract API key from headers or config
@@ -99,14 +99,13 @@ const customAxios = new MeasuredAxios({
   apiKeyHeader: 'custom-auth-key',
 });
 ```
-```
 
 ### Advanced Axios Usage
 
 ```typescript
-import { MeasuredAxios } from '@universal-kit/metrics-client';
+import { AxiosWrapper } from '@universal-kit/metrics-client';
 
-const client = new MeasuredAxios();
+const client = new AxiosWrapper();
 
 // Configure base URL
 client.setConfig({
@@ -122,7 +121,7 @@ const patchUser = await client.patch('/users/1', { status: 'active' });
 const deleteUser = await client.delete('/users/1');
 
 // Custom request configuration
-const config: MeasuredAxiosRequestConfig = {
+const config: AxiosWrapperRequestConfig = {
   method: 'GET',
   url: '/custom',
   skipMetrics: true, // Skip metrics for this request
@@ -142,74 +141,57 @@ axiosInstance.interceptors.request.use(config => {
 
 ```typescript
 import {
-  MeasuredHttpClient,
-  PrometheusMetricsManager,
-  createPrometheusMetrics,
-  MultiMetricsConfig
+  NodeFetchWrapper,
+  AxiosWrapper,
+  ProviderMetricsManager
 } from '@universal-kit/metrics-client';
 
-// Configure multi-metrics with Prometheus support
-const metricsConfig: MultiMetricsConfig = {
-  openTelemetry: { enabled: true },
-  prometheus: {
-    enabled: true,
-    prefix: 'my_app_http',
-    labels: { service: 'user-service' }
-  }
-};
+// Create client with provider monitoring
+const client = new AxiosWrapper({
+  provider: 'payment-api',
+  apiKey: 'your-api-key',
+  baseURL: 'https://api.example.com',
+  enableMetrics: true
+});
 
-const client = new MeasuredHttpClient(
-  {
-    baseUrl: 'https://api.example.com',
-    enableMetrics: true
-  },
-  undefined,
-  metricsConfig
-);
+// Get provider metrics manager
+const metricsManager = client.getProviderMetricsManager();
+
+// Access provider-level analytics
+const successRate = metricsManager.getProviderSuccessRate();
+const requestCount = metricsManager.getProviderRequestCount();
+const errorRate = metricsManager.getProviderErrorRate();
+
+// Get detailed metrics by API key
+const apiKeyMetrics = metricsManager.getApiKeyMetrics();
+
+// Access request tracer for detailed request information
+const tracer = client.getRequestTracer();
 
 // Make requests and collect metrics
 await client.get('/users/1');
 await client.get('/users/2');
 
-// Get Prometheus metrics
-const prometheusMetrics = client.getPrometheusMetrics();
-console.log(prometheusMetrics);
-
-// Create standalone Prometheus metrics
-const prometheusManager = createPrometheusMetrics({
-  enabled: true,
-  prefix: 'custom_metrics',
-  labels: { app: 'my-app' }
-});
-
-// Record custom metrics
-prometheusManager.recordHttpRequest(
-  'GET',
-  'https://api.example.com/users',
-  200,
-  150, // duration in ms
-  1024, // request size in bytes
-  2048  // response size in bytes
-);
-
-// Get metrics for Prometheus server
-const metrics = prometheusManager.getMetrics();
+// Get updated metrics after requests
+console.log('Updated success rate:', metricsManager.getProviderSuccessRate());
+console.log('Total requests:', metricsManager.getProviderRequestCount());
 ```
 
-Available Prometheus metrics:
-- `http_client_http_requests_total` - Total number of HTTP requests
-- `http_client_http_request_duration_seconds` - Request duration histogram
-- `http_client_http_request_size_bytes` - Request size histogram
-- `http_client_http_response_size_bytes` - Response size histogram
-- `http_client_active_connections` - Active connections gauge
-- `http_client_errors_total` - Total number of errors
+Available provider-level metrics:
+- Request count per provider
+- Success rate calculation
+- Error rate tracking
+- API key-specific metrics
+- Request/response timing
+- Status code distribution
+- Error tracking and analysis
 
 ### Error Handling
 
 ```typescript
-import { MeasuredAxios } from '@universal-kit/metrics-client';
+import { AxiosWrapper } from '@universal-kit/metrics-client';
 
-const client = new MeasuredAxios();
+const client = new AxiosWrapper();
 
 try {
   const response = await client.get('/nonexistent');
@@ -234,57 +216,57 @@ try {
 
 ### Configuration Options
 
-Both `MeasuredHttpClient` and `MeasuredAxios` support the same configuration:
+Both `NodeFetchWrapper` and `AxiosWrapper` support comprehensive configuration:
 
 ```typescript
-interface HttpClientConfig {
+interface BaseWrapperConfig {
   baseUrl?: string;
   timeout?: number;
   headers?: Record<string, string>;
-  retryConfig?: {
-    attempts: number;
-    delay: number;
-  };
   enableMetrics?: boolean;
+  provider?: string;
+  apiKey?: string;
+  apiKeyHeader?: string;
+  getApiKey?: (config: any) => string;
+  traceFailedRequests?: boolean;
+  logRequestEvents?: boolean;
+}
+
+interface AxiosWrapperRequestConfig extends BaseWrapperConfig {
+  // All Axios config options supported
+  baseURL?: string;
+  method?: string;
+  data?: any;
+  params?: any;
+  skipMetrics?: boolean;
 }
 ```
 
-### Measured Methods
-
-For `MeasuredAxios`, you can use measured methods that return `ApiCallResult<T>`:
-
-- `measuredGet<T>(url, config?)`
-- `measuredPost<T>(url, data?, config?)`
-- `measuredPut<T>(url, data?, config?)`
-- `measuredPatch<T>(url, data?, config?)`
-- `measuredDelete<T>(url, config?)`
-- `measuredRequest<T>(config)`
-
-These methods provide a consistent response format with `data`, `metrics`, and `success` properties.
-
-## Features
-
-- ✅ **Multi-Metrics Support**: OpenTelemetry and Prometheus metrics collection
-- ✅ **Prometheus Integration**: Comprehensive Prometheus metrics with histograms, counters, and gauges
-- ✅ **Automatic API Usage Measurement**: All HTTP requests are automatically measured and logged
-- ✅ **Axios Compatibility**: Drop-in replacement for existing Axios code
-- ✅ **TypeScript Support**: Full TypeScript support with proper type definitions
-- ✅ **Request/Response Interceptors**: Full access to Axios interceptors
-- ✅ **Metrics Access**: Access detailed metrics from responses and errors
-- ✅ **Retry Logic**: Built-in retry logic for failed requests
-- ✅ **Request ID Tracking**: Automatic request ID generation for tracing
-- ✅ **Configurable Logging**: Integration with universal-kit logger
-- ✅ **Request/Response Size Tracking**: Track HTTP request and response sizes
-- ✅ **Active Connections Monitoring**: Real-time monitoring of active HTTP connections
-
 ## API Reference
 
-### MeasuredAxios
+### NodeFetchWrapper
 
 #### Constructor
 
 ```typescript
-new MeasuredAxios(config?: HttpClientConfig, logger?: Logger)
+new NodeFetchWrapper(config?: BaseWrapperConfig, logger?: Logger)
+```
+
+#### Methods
+
+- `get<T>(url, config?)` - GET request
+- `post<T>(url, data?, config?)` - POST request
+- `put<T>(url, data?, config?)` - PUT request
+- `patch<T>(url, data?, config?)` - PATCH request
+- `delete<T>(url, config?)` - DELETE request
+- `request<T>(config)` - Custom request
+
+### AxiosWrapper
+
+#### Constructor
+
+```typescript
+new AxiosWrapper(config?: BaseWrapperConfig, logger?: Logger)
 ```
 
 #### Methods
@@ -295,12 +277,6 @@ new MeasuredAxios(config?: HttpClientConfig, logger?: Logger)
 - `patch<T>(url, data?, config?)` - Axios-compatible PATCH request
 - `delete<T>(url, config?)` - Axios-compatible DELETE request
 - `request<T>(config)` - Axios-compatible custom request
-- `measuredGet<T>(url, config?)` - Returns ApiCallResult<T>
-- `measuredPost<T>(url, data?, config?)` - Returns ApiCallResult<T>
-- `measuredPut<T>(url, data?, config?)` - Returns ApiCallResult<T>
-- `measuredPatch<T>(url, data?, config?)` - Returns ApiCallResult<T>
-- `measuredDelete<T>(url, config?)` - Returns ApiCallResult<T>
-- `measuredRequest<T>(config)` - Returns ApiCallResult<T>
 
 #### Properties
 
@@ -309,24 +285,67 @@ new MeasuredAxios(config?: HttpClientConfig, logger?: Logger)
 
 #### Utility Methods
 
-- `getUri(config?)` - Get request URI
 - `setConfig(config)` - Update configuration
 - `getConfig()` - Get current configuration
 - `getAxiosInstance()` - Get underlying Axios instance
-- `createApiCallResult(response)` - Convert Axios response to ApiCallResult
+- `getProviderMetricsManager()` - Get provider metrics manager
+- `getRequestTracer()` - Get request tracer
 
-### Types
+### ProviderMetricsManager
+
+- `getProviderSuccessRate()` - Get success rate for provider
+- `getProviderRequestCount()` - Get total request count
+- `getProviderErrorRate()` - Get error rate for provider
+- `getApiKeyMetrics()` - Get metrics by API key
+- `resetMetrics()` - Reset all metrics
+
+### RequestTracer
+
+- `traceRequest(request, response)` - Trace a request
+- `traceError(request, error)` - Trace an error
+- `getActiveSpans()` - Get active request spans
+- `getRequestTrace(requestId)` - Get trace by request ID
+
+## Key Features
+
+- ✅ **Provider-Level Monitoring**: Track usage per API provider with success rates and analytics
+- ✅ **OpenTelemetry Integration**: Full OTel metrics and tracing support for enterprise observability
+- ✅ **Request Tracing**: Detailed request lifecycle tracking with comprehensive error analysis
+- ✅ **Axios Compatibility**: Drop-in replacement for existing Axios code with enhanced features
+- ✅ **Node Fetch Support**: Native Node.js fetch wrapper for modern applications
+- ✅ **API Key Tracking**: Monitor usage by API key, path, and status code
+- ✅ **TypeScript Support**: Full TypeScript support with proper type definitions
+- ✅ **Metrics Access**: Access detailed metrics from responses and errors
+- ✅ **Configurable Logging**: Integration with universal-kit logger
+- ✅ **Request/Response Size Tracking**: Track HTTP request and response sizes
+- ✅ **Failed Request Analysis**: Comprehensive logging and tracing of failed requests
+
+## Examples
+
+### Production-ready Setup
 
 ```typescript
-interface MeasuredAxiosRequestConfig extends AxiosRequestConfig {
-  skipMetrics?: boolean;
-}
+import { AxiosWrapper } from '@universal-kit/metrics-client';
+import { Logger } from '@universal-kit/logger';
 
-interface MeasuredAxiosResponse<T = any> extends AxiosResponse<T> {
-  _metrics?: ApiMetrics;
-}
+// Initialize logger
+const logger = new Logger({
+  level: 'info',
+  service: 'my-service'
+});
 
-interface MeasuredAxiosError<T = any> extends AxiosError<T> {
-  _metrics?: ApiMetrics;
-}
+// Create HTTP client with provider monitoring
+const httpClient = new AxiosWrapper({
+  provider: 'payment-provider',
+  apiKey: process.env.PAYMENT_API_KEY,
+  apiKeyHeader: 'x-api-key',
+  baseURL: 'https://api.payment-provider.com',
+  timeout: 10000,
+  traceFailedRequests: true,
+  logRequestEvents: true,
+  enableMetrics: true
+}, logger);
+
+// Use in your application
+export { httpClient };
 ```

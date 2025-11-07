@@ -7,16 +7,15 @@ A TypeScript monorepo for API usage observation and monitoring libraries.
 Universal Kit provides a comprehensive suite of tools for measuring and observing external API usage with:
 
 - **Structured Logger** with metadata support for easy log attribution
-- **HTTP Client Wrapper** with automatic API usage measurement
-- **Decorator System** for easy integration with existing code
-- **OpenTelemetry Support** for observability standards
+- **Metrics HTTP Client** with automatic API usage measurement and OpenTelemetry integration
+- **Provider-Level Monitoring** for API usage analytics and success rate tracking
+- **OpenTelemetry Support** for enterprise observability standards
 
 ## Packages
 
-- `@universal-kit/logger` - **Winston-based** structured logger with metadata and advanced features
-- `@universal-kit/http-client` - HTTP client with automatic measurement
-- `@universal-kit/decorators` - Decorators for API usage tracking
-- `@universal-kit/otel` - OpenTelemetry protocol support
+- `@universal-kit/logger` - **Winston-based** structured logger with metadata and advanced features (v0.1.2)
+- `@universal-kit/metrics-client` - HTTP client with automatic measurement and provider monitoring (v0.1.2)
+- `@universal-kit/otel` - OpenTelemetry SDK integration for enterprise observability (v0.1.2)
 
 ## Quick Start
 
@@ -35,45 +34,57 @@ pnpm dev
 
 ## Usage Examples
 
-### Basic HTTP Client
+### Metrics HTTP Client with Provider Monitoring
 
 ```typescript
-import { MeasuredHttpClient } from '@universal-kit/http-client';
-import { Logger } from '@universal-kit/logger';
+import { AxiosWrapper } from '@universal-kit/metrics-client';
 
-const logger = new Logger();
-const client = new MeasuredHttpClient(
-  { baseUrl: 'https://api.example.com' },
-  logger
-);
+// Create a metrics-enabled HTTP client with provider monitoring
+const client = new AxiosWrapper({
+  provider: 'my-api-provider',
+  apiKey: 'your-api-key',
+  apiKeyHeader: 'x-api-key',
+  baseURL: 'https://api.example.com',
+  timeout: 5000,
+  traceFailedRequests: true,
+  logRequestEvents: true,
+});
 
-const result = await client.get('/users/1');
-console.log('API call completed in', result.metrics.duration, 'ms');
+try {
+  const response = await client.get('/users/1');
+  console.log('Data:', response.data);
+  console.log('Metrics:', response._metrics);
+
+  // Access provider-level metrics
+  const metricsManager = client.getProviderMetricsManager();
+  const successRate = metricsManager.getProviderSuccessRate();
+  console.log('Provider success rate:', successRate);
+} catch (error) {
+  console.error('Request failed:', error);
+  console.error('Error metrics:', error._metrics);
+}
 ```
 
-### Using Decorators
+### Node Fetch-based HTTP Client
 
 ```typescript
-import { measureApiUsage } from '@universal-kit/decorators';
+import { NodeFetchWrapper } from '@universal-kit/metrics-client';
 
-class ApiService {
-  @measureApiUsage({
-    logRequests: true,
-    logResponses: true,
-    includeArgs: true,
-  })
-  async getUser(userId: number) {
-    // Your API call logic here
-    return await httpClient.get(`/users/${userId}`);
-  }
-}
+const client = new NodeFetchWrapper({
+  baseUrl: 'https://api.example.com',
+  provider: 'my-api',
+  timeout: 5000,
+});
+
+const result = await client.get('/users/1');
+console.log('Data:', result.data);
+console.log('Metrics:', result.metrics);
 ```
 
 ### Winston-based Logger with Advanced Features
 
 ```typescript
-import { Logger } from '@universal-kit/logger';
-import winston from 'winston';
+import { Logger, trackFunction } from '@universal-kit/logger';
 
 // Create enhanced logger with Winston backend
 const logger = new Logger({
@@ -82,24 +93,48 @@ const logger = new Logger({
   customFields: { service: 'my-service', version: '1.0.0' },
 });
 
-// Add custom Winston transports
-logger.addTransport(
-  new winston.transports.File({
-    filename: 'app.log',
-    format: winston.format.json(),
-  })
-);
-
 // Basic logging with structured metadata
-logger.info('Processing request', 'api-service', 'getUser', {
+logger.info('Processing request', {
   userId: 123,
   requestId: 'req-abc123',
+  operation: 'getUser'
 });
+
+// Use trackFunction decorator for automatic function measurement
+class UserService {
+  @trackFunction({
+    logArguments: true,
+    logResult: true,
+    logErrors: true
+  })
+  async getUser(userId: number) {
+    // Your logic here
+    return { id: userId, name: 'John Doe' };
+  }
+}
 
 // Advanced Winston features
 const recentLogs = await logger.query({ limit: 10, order: 'desc' });
 const childLogger = logger.child({ requestId: 'req-123' });
 logger.setLevel('debug'); // Dynamic level changes
+```
+
+### OpenTelemetry Integration
+
+```typescript
+import { OtelProvider } from '@universal-kit/otel';
+
+// Initialize OpenTelemetry for enterprise observability
+const otel = new OtelProvider({
+  serviceName: 'my-service',
+  serviceVersion: '1.0.0',
+  environment: 'production'
+});
+
+await otel.initialize();
+
+// Your application code now has full OpenTelemetry support
+// Logs, metrics, and traces are automatically collected
 ```
 
 ## Development
@@ -183,14 +218,17 @@ pnpm test
 - ✅ Monorepo structure with pnpm workspaces
 - ✅ TypeScript with strict type checking
 - ✅ **Winston-based structured logging** with metadata and advanced features
-- ✅ HTTP client wrapper with automatic measurement
-- ✅ Decorator system for API usage tracking
-- ✅ OpenTelemetry protocol support
+- ✅ **Metrics HTTP Client** with automatic measurement and provider monitoring
+- ✅ **OpenTelemetry Integration** for enterprise observability
+- ✅ **Provider-level metrics** with success rate tracking and API usage analytics
+- ✅ **Request tracing** with comprehensive error tracking and logging
+- ✅ **Axios-compatible wrapper** for drop-in replacement
+- ✅ **Function tracking decorator** for automatic measurement
 - ✅ Jest testing framework with comprehensive coverage
 - ✅ Example usage demonstrating all features
 - ✅ CI/CD ready with proper test configuration
 
-## Winston Logger Features
+## Logger Features
 
 The logger is built on top of **Winston** and provides:
 
@@ -203,15 +241,39 @@ The logger is built on top of **Winston** and provides:
 - **Dynamic Configuration**: Runtime log level changes
 - **Custom Formatting**: Flexible log output formats
 - **Error Handling**: Comprehensive error logging with stack traces
+- **Function Tracking**: Automatic measurement of decorated functions
+
+## Metrics Client Features
+
+The metrics client provides comprehensive HTTP monitoring:
+
+- **Automatic API Usage Measurement**: All HTTP requests are automatically measured
+- **Provider-Level Monitoring**: Track usage per API provider with success rates
+- **OpenTelemetry Integration**: Full OTel metrics and tracing support
+- **Request Tracing**: Detailed request lifecycle tracking with span management
+- **Error Analytics**: Comprehensive logging and tracing of failed requests
+- **Axios Compatibility**: Drop-in replacement for existing Axios code
+- **Retry Logic**: Configurable retry mechanisms for failed requests
+- **Request/Response Size Tracking**: Automatic size measurement for monitoring
+- **Active Connections Monitoring**: Real-time monitoring of active HTTP connections
+
+## OpenTelemetry Features
+
+The OTel package provides enterprise observability:
+
+- **Full OTel SDK**: Complete OpenTelemetry protocol support
+- **Auto-Instrumentation**: Node.js auto-instrumentation for common libraries
+- **Multiple Exporters**: OTLP, Prometheus, and custom exporters
+- **Resource Management**: Standard OTel resource configuration
+- **Semantic Conventions**: Standard OTel semantic conventions
+- **Logs, Metrics, Traces**: Complete observability stack
 
 ## Architecture
 
 The project follows a modular architecture where each package has a specific responsibility:
 
-1. **Core**: Provides shared types and interfaces
-2. **Logger**: Winston-based structured logging with rich metadata and advanced features
-3. **HTTP Client**: Wraps fetch with automatic measurement and logging
-4. **Decorators**: Provides annotation-based measurement
-5. **OTel**: Integrates with OpenTelemetry standards
+1. **Logger**: Winston-based structured logging with rich metadata and function tracking
+2. **Metrics Client**: HTTP client wrapper with provider-level monitoring and tracing
+3. **OTel**: Full OpenTelemetry SDK integration for enterprise observability
 
-All packages work together to provide comprehensive API usage observability.
+All packages work together to provide comprehensive API usage observability with enterprise-grade features.
