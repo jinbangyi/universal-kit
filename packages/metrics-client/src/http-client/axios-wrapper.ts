@@ -79,6 +79,9 @@ export class AxiosWrapper extends BaseHttpClient {
       },
       (error: AxiosError) => {
         if (!error.config?.skipMetrics) {
+          if (error.response) {
+            this.processResponse(error.response);
+          }
           this.processError(error);
         }
         return Promise.reject(error);
