@@ -8,3 +8,5 @@ export type { ProviderMetricsConfig, ProviderMetricsCollection } from './metrics
 
 export { RequestTracer } from './tracing/api-provider-tracing.js';
 export type { RequestTraceConfig } from './tracing/api-provider-tracing.js';
+
+export { getHttpModule } from './utils/module-import-util.js';
