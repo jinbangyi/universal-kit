@@ -1,7 +1,5 @@
-import { jest } from '@jest/globals';
-
 // Mock fetch for testing
-global.fetch = jest.fn() as unknown as typeof fetch;
+global.fetch = jest.fn();
 
 // Mock AbortSignal.timeout for Node < 20 compatibility
 if (!global.AbortSignal.timeout) {
@@ -9,5 +7,36 @@ if (!global.AbortSignal.timeout) {
     const controller = new AbortController();
     setTimeout(() => controller.abort(), 100);
     return controller.signal;
-  }) as unknown as typeof AbortSignal.timeout;
+  });
 }
+
+// Mock OpenTelemetry for testing
+jest.mock('@opentelemetry/api', () => ({
+  metrics: {
+    getMeter: jest.fn(() => ({
+      createUpDownCounter: jest.fn(() => ({
+        add: jest.fn(),
+      })),
+      createCounter: jest.fn(() => ({
+        add: jest.fn(),
+      })),
+      createHistogram: jest.fn(() => ({
+        record: jest.fn(),
+      })),
+    })),
+  },
+  trace: {
+    getTracer: jest.fn(() => ({
+      startSpan: jest.fn(() => ({
+        end: jest.fn(),
+        setAttribute: jest.fn(),
+        recordException: jest.fn(),
+        setStatus: jest.fn(),
+      })),
+    })),
+  },
+  context: {
+    active: jest.fn(),
+    with: jest.fn(),
+  },
+}));

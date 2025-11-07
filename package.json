@@ -11,6 +11,7 @@
     "format": "prettier --write \"**/*.{ts,js}\"",
     "format:check": "prettier --check \"**/*.{ts,js}\"",
     "test": "turbo run test",
+    "test:integration": "pnpm turbo run test --filter=@universal-kit/metrics-client -- jest axios-wrapper-real.integration.test.ts",
     "clean:node_modules": "rm -rf node_modules && find examples -name node_modules -type d -exec rm -rf {} +",
     "clean": "turbo run clean",
     "prerelease": "pnpm run build && pnpm run test && pnpm run lint",

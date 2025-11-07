@@ -6,7 +6,7 @@ import axios, {
   InternalAxiosRequestConfig,
 } from 'axios';
 import { Logger } from '@universal-kit/logger';
-import { BaseHttpClient, GeneralRequestConfig, type BaseWrapperConfig } from './common.js';
+import { BaseHttpClient, type BaseWrapperConfig, type GeneralRequestConfig } from './common.js';
 import type { AxiosRequestMetadata, ErrorContext } from '../typing.js';
 
 // Axios-compatible interfaces
@@ -42,6 +42,7 @@ export class AxiosWrapper extends BaseHttpClient {
       method: config.method ?? 'GET',
       headers: config.headers,
       body: config.data,
+      params: config.params,
     };
   }
 
@@ -80,9 +81,14 @@ export class AxiosWrapper extends BaseHttpClient {
       (error: AxiosError) => {
         if (!error.config?.skipMetrics) {
           if (error.response) {
+            // For errors with responses, process the response first to handle completion metrics
             this.processResponse(error.response);
+            // Then process the error, but don't decrement active requests again
+            this.processError(error, true); // Pass flag indicating response was already processed
+          } else {
+            // For errors without responses, process the error normally
+            this.processError(error, false);
           }
-          this.processError(error);
         }
         return Promise.reject(error);
       },
@@ -111,7 +117,7 @@ export class AxiosWrapper extends BaseHttpClient {
     this.processRequestComplete(requestMetadata, statusCode, responseSize);
   }
 
-  private processError(error: AxiosError): void {
+  private processError(error: AxiosError, responseAlreadyProcessed: boolean = false): void {
     const requestMetadata: AxiosRequestMetadata | undefined = error.config?.metadata;
     if (!requestMetadata) {
       return;
@@ -121,6 +127,7 @@ export class AxiosWrapper extends BaseHttpClient {
     const errorContext: ErrorContext = {
       responseMessage,
       responseStatus,
+      responseAlreadyProcessed,
     };
 
     this.processRequestError(requestMetadata, error, {

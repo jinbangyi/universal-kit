@@ -192,9 +192,9 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.50, sum(rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) by (le, path))",
+          "expr": "histogram_quantile(0.50, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval])))",
           "interval": "",
-          "legendFormat": "p50 - {{path}}",
+          "legendFormat": "p50 - {{host}}",
           "refId": "A"
         },
         {
@@ -202,9 +202,9 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) by (le, path))",
+          "expr": "histogram_quantile(0.95, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval])))",
           "interval": "",
-          "legendFormat": "p95 - {{path}}",
+          "legendFormat": "p95 - {{host}}",
           "refId": "B"
         },
         {
@@ -212,13 +212,13 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.99, sum(rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) by (le, path))",
+          "expr": "histogram_quantile(0.99, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval])))",
           "interval": "",
-          "legendFormat": "p99 - {{path}}",
+          "legendFormat": "p99 - {{host}}",
           "refId": "C"
         }
       ],
-      "title": "Response Latency by Path (ms)",
+  "title": "Response Latency by Host (ms)",
       "type": "timeseries"
     },
     {
@@ -498,9 +498,9 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (path) (rate(api_provider_request_size_bytes_sum{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]) / rate(api_provider_request_size_bytes_count{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]))",
+          "expr": "sum by (host) (rate(api_provider_request_size_bytes_sum{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval]) / rate(api_provider_request_size_bytes_count{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval]))",
           "interval": "",
-          "legendFormat": "Request Size - {{path}}",
+          "legendFormat": "Request Size - {{host}}",
           "refId": "A"
         },
         {
@@ -508,13 +508,13 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (path) (rate(api_provider_response_size_bytes_sum{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]) / rate(api_provider_response_size_bytes_count{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]))",
+          "expr": "sum by (host) (rate(api_provider_response_size_bytes_sum{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval]) / rate(api_provider_response_size_bytes_count{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval]))",
           "interval": "",
-          "legendFormat": "Response Size - {{path}}",
+          "legendFormat": "Response Size - {{host}}",
           "refId": "B"
         }
       ],
-      "title": "Average Request/Response Size by Path (bytes)",
+  "title": "Average Request/Response Size by Host (bytes)",
       "type": "timeseries"
     },
     {
@@ -600,7 +600,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (path) (rate(api_provider_successes_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]) / rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) * 100",
+          "expr": "(sum by (path) (rate(api_provider_successes_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) / sum by (path) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]))) * 100",
           "interval": "",
           "legendFormat": "Success Rate - {{path}}",
           "refId": "A"
@@ -827,7 +827,8 @@
     },
     {
       "datasource": {
-        "type": "table"
+        "type": "prometheus",
+        "uid": "${DS_PROMETHEUS}"
       },
       "fieldConfig": {
         "defaults": {
@@ -941,17 +942,43 @@
         }
       },
       "pluginVersion": "9.0.0",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "host": 0,
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3
+            },
+            "renameByName": {
+              "host": "Host",
+              "Value #A": "Requests/sec",
+              "Value #B": "Latency (p95)",
+              "Value #C": "Success Rate"
+            }
+          }
+        }
+      ],
       "targets": [
         {
           "datasource": {
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (path) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]))",
-          "format": "time_series",
+          "expr": "sum by (host) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]))",
+          "format": "table",
           "instant": true,
           "interval": "",
-          "legendFormat": "Requests/sec",
+          "legendFormat": "",
           "refId": "A"
         },
         {
@@ -959,11 +986,11 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.95, sum(rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) by (le, path))",
-          "format": "time_series",
+          "expr": "histogram_quantile(0.95, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval])))",
+          "format": "table",
           "instant": true,
           "interval": "",
-          "legendFormat": "Latency (p95)",
+          "legendFormat": "",
           "refId": "B"
         },
         {
@@ -971,15 +998,15 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum(rate(api_provider_successes_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) / sum(rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) * 100",
-          "format": "time_series",
+          "expr": "(sum by (host) (rate(api_provider_successes_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) / sum by (host) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]))) * 100",
+          "format": "table",
           "instant": true,
           "interval": "",
-          "legendFormat": "Success Rate",
+          "legendFormat": "",
           "refId": "C"
         }
       ],
-      "title": "Path Performance Summary Table",
+  "title": "Host Performance Summary Table",
       "type": "table"
     }
   ],

@@ -5,11 +5,15 @@ export default {
   testEnvironment: 'node',
   rootDir: './src',
   testMatch: ['**/__tests__/**/*.(spec|test).ts', '**/?(*.)+(spec|test).ts'],
-  globals: {
-    'ts-jest': {
-      tsconfig: '<rootDir>/../tsconfig.spec.json',
-    },
+  moduleNameMapper: {
+    '^(\\.{1,2}/.*)\\.js$': '$1',
   },
+  extensionsToTreatAsEsm: ['.ts'],
   collectCoverageFrom: ['**/*.ts', '!**/*.d.ts', '!**/index.ts'],
-  setupFilesAfterEnv: ['<rootDir>/__tests__/setup.ts'],
+  transform: {
+    '^.+\\.(ts|tsx)$': ['ts-jest', {
+      tsconfig: '<rootDir>/../tsconfig.spec.json',
+      useESM: true,
+    }],
+  },
 };

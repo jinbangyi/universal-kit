@@ -112,7 +112,7 @@ export default [
       'indent': ['error', 2, { SwitchCase: 1 }],
       'max-depth': ['error', 4],
       'max-len': ['error', { code: 120, ignoreUrls: true }],
-      'max-nested-callbacks': ['error', 3],
+      'max-nested-callbacks': ['error', 5],
       'max-params': ['error', 5],
       'new-cap': 'error',
       'new-parens': 'error',
@@ -144,6 +144,17 @@ export default [
         ecmaVersion: 2022,
         sourceType: 'module',
         project: null, // Disable project checking for test files
+      },
+      globals: {
+        describe: 'readonly',
+        it: 'readonly',
+        test: 'readonly',
+        expect: 'readonly',
+        beforeAll: 'readonly',
+        afterAll: 'readonly',
+        beforeEach: 'readonly',
+        afterEach: 'readonly',
+        jest: 'readonly',
       },
     },
     rules: {

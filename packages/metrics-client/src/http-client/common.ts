@@ -8,6 +8,7 @@ import type { AxiosRequestMetadata, ErrorContext, RequestInfo, ResponseInfo } fr
 export interface GeneralRequestConfig {
   url: string;
   method: string;
+  params?: URLSearchParams;
   headers?: RequestInit['headers'];
   body?: RequestInit['body'];
 }
@@ -20,6 +21,7 @@ export interface BaseWrapperConfig {
   provider: string;
   getApiKey?: ApiKeyResolver;
   apiKeyHeader?: string; // Default: 'x-api-key'
+  apiKeyQueryParam?: string; // Default: 'x-api-key'
   retryConfig?: { // Default: { attempts: 0, delay: 1000 }
     attempts: number;
     delay: number;
@@ -41,6 +43,7 @@ export abstract class BaseHttpClient {
     this.config = {
       getApiKey: this.getDefaultApiKey.bind(this),
       apiKeyHeader: 'x-api-key',
+      apiKeyQueryParam: 'x-api-key',
       retryConfig: {
         attempts: 0,
         delay: 1000,
@@ -70,7 +73,6 @@ export abstract class BaseHttpClient {
     if (apiKey.length <= 8) return '****';
     return `${apiKey.substring(0, 4)}****${apiKey.substring(apiKey.length - 4)}`;
   }
-
 
   protected normalizeHeaders(headers: RequestInit['headers']): Record<string, string> {
     const result: Record<string, string> = {};
@@ -104,17 +106,27 @@ export abstract class BaseHttpClient {
   private getDefaultApiKey(config: GeneralRequestConfig): string {
     const normalizedHeaders = this.normalizeHeaders(config.headers);
     // try lowercase, uppercase, and original case
-    if (this.config.apiKeyHeader === undefined) {
+    if (this.config.apiKeyHeader === undefined && this.config.apiKeyQueryParam === undefined) {
       return defaultApiKey;
     }
 
+    // try to read from header
     const headers = [
       this.config.apiKeyHeader,
       this.config.apiKeyHeader.toLowerCase(),
       this.config.apiKeyHeader.toUpperCase(),
     ];
     const apiKey = headers.map(header => normalizedHeaders[header]).find(Boolean);
-    return apiKey ?? defaultApiKey;
+    if (apiKey) return apiKey;
+
+    // try to read from query param
+    if (this.config.apiKeyQueryParam && config.params) {
+      const queryParamKey = this.config.apiKeyQueryParam;
+      const paramValue = config.params.get(queryParamKey);
+      if (paramValue) return paramValue;
+    }
+
+    return defaultApiKey;
   }
 
   protected generateRequestId(): string {
@@ -207,15 +219,23 @@ export abstract class BaseHttpClient {
   protected createRequestInfo(
     config: GeneralRequestConfig,
   ): RequestInfo {
+    const url = config.url ?? '';
+    const requestId = this.generateRequestId();
+    const { host, pathname, params } = this.parseUrl(url);
+    // combine params read from URL and config.params
+    if (config.params) {
+      for (const [key, value] of config.params.entries()) {
+        params[key] = value;
+      }
+      config.params = new URLSearchParams(params);
+    }
+
     const _apikey = this.config.getApiKey(config);
     const headersRecord = this.normalizeHeaders(config.headers);
     const sanitizedHeaders = this.sanitizeHeaders(headersRecord, _apikey);
 
     const apiKey = this.hashApiKey(_apikey);
     const method = config.method ? config.method.toUpperCase() : 'GET';
-    const url = config.url ?? '';
-    const requestId = this.generateRequestId();
-    const { host, pathname, params } = this.parseUrl(url);
     const requestSize = this.calculateRequestSize(config.body);
 
     return {
@@ -315,9 +335,12 @@ export abstract class BaseHttpClient {
     const { requestInfo } = requestMetadata;
 
     // Record provider error metrics
+    // If response was already processed (for Axios errors with response), don't decrement active requests again
+    const shouldDecrementActiveRequests = !responseContext?.responseAlreadyProcessed;
     this.providerMetrics.recordRequestError(
       requestInfo,
       error.constructor.name,
+      shouldDecrementActiveRequests,
     );
 
     // Log request error

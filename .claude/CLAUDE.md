@@ -145,3 +145,11 @@ All packages are published to npm with:
 - **Quality gates**: Pre-release checks include build, test, and lint validation
 - **Example usage**: Documentation includes production-ready configuration examples
 - **OpenTelemetry ready**: All packages designed to work seamlessly with enterprise observability stacks
+
+## Critical Development Guidelines
+
+- **Documentation First**: Always read all files in `docs/general/overview/` before starting any work to understand project structure, coding rules, and requirements
+- **Integration Testing Only**: Create integration tests for user workflows, not unit tests for individual functions
+- **Three-Step Rule**: All library usage must be achievable in ≤3 steps for users
+- **Observability by Default**: All features must include comprehensive metrics, traces, and logs
+- **Privacy Protection**: API keys and sensitive data must be automatically hashed/truncated

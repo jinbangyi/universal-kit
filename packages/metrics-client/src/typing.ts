@@ -27,6 +27,7 @@ export interface ResponseInfo extends RequestInfo {
 }
 
 export interface ErrorContext {
+  responseAlreadyProcessed?: boolean;
   responseMessage?: string;
   responseStatus?: number;
 }
