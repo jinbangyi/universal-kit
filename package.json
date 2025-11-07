@@ -1,6 +1,6 @@
 {
   "name": "universal-kit",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "private": true,
   "type": "module",
   "scripts": {
@@ -14,7 +14,7 @@
     "clean:node_modules": "rm -rf node_modules && find examples -name node_modules -type d -exec rm -rf {} +",
     "clean": "turbo run clean",
     "prerelease": "pnpm run build && pnpm run test && pnpm run lint",
-    "publish:packages": "pnpm publish --recursive --filter ./packages/* --access public --no-git-checks",
+    "publish:packages": "pnpm publish --recursive --filter @universal-kit/* --access public --no-git-checks",
     "deploy": "pnpm run prerelease && pnpm run publish:packages"
   },
   "devDependencies": {
