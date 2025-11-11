@@ -101,7 +101,7 @@ export class RequestTracer {
         this.logger.error(
           baseMessage,
           event.error ?? new Error('Unknown error'),
-          fullLogData,
+          { ...fullLogData, body: event.body },
         );
         break;
 

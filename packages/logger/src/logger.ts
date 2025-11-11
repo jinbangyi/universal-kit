@@ -271,20 +271,21 @@ export class Logger {
   }
 
   private convertToAttributes(logData: LogData, error?: Error): Attributes {
+    const prefix = 'universal-kit.';
     const attributes: Attributes = {};
 
     for (const [key, value] of Object.entries(logData)) {
       if (value === undefined) {
         continue;
       }
-      attributes[key] = this.normalizeAttributeValue(value);
+      attributes[`${prefix}${key}`] = this.normalizeAttributeValue(value);
     }
 
     if (error) {
-      attributes['error.name'] = error.name;
-      attributes['error.message'] = error.message;
+      attributes[`${prefix}error.name`] = error.name;
+      attributes[`${prefix}error.message`] = error.message;
       if (error.stack) {
-        attributes['error.stack'] = error.stack;
+        attributes[`${prefix}error.stack`] = error.stack;
       }
     }
 

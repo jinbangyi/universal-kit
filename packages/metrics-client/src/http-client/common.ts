@@ -321,7 +321,10 @@ export abstract class BaseHttpClient {
     });
 
     // Finish request span
-    this.requestTracer.finishRequestSpan(requestMetadata.span, responseInfo);
+    this.requestTracer.finishRequestSpan(
+      requestMetadata.span,
+      responseInfo,
+    );
 
     return responseInfo;
   }

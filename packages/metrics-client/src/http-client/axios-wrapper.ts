@@ -75,12 +75,15 @@ export class AxiosWrapper extends BaseHttpClient {
       response => {
         if (!response.config.skipMetrics) {
           this.processResponse(response);
+          // TODO process error, but the error should be null here
+          // this.processError(null, true);
         }
         return response;
       },
       (error: AxiosError) => {
         if (!error.config?.skipMetrics) {
           if (error.response) {
+            // TODO span should not closed by processResponse
             // For errors with responses, process the response first to handle completion metrics
             this.processResponse(error.response);
             // Then process the error, but don't decrement active requests again
