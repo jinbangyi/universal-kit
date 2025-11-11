@@ -330,6 +330,7 @@ export abstract class BaseHttpClient {
     requestMetadata: AxiosRequestMetadata,
     error: Error,
     responseContext?: ErrorContext,
+    spanAlreadyFinished: boolean = false,
   ): RequestInfo {
     const duration = Date.now() - requestMetadata.startTime;
     const { requestInfo } = requestMetadata;
@@ -361,14 +362,17 @@ export abstract class BaseHttpClient {
       );
     }
 
-    // axios error may have response with status code
-    const statusCode = (error as { response?: { status?: number } }).response?.status ?? 501;
-    // Finish request span with error
-    this.requestTracer.finishRequestSpan(
-      requestMetadata.span,
-      { ...requestInfo, duration, statusCode, responseSize: 0 },
-      this.requestDataAttributes(requestMetadata.requestInfo),
-    );
+    // Only finish the span if it hasn't been finished already
+    if (!spanAlreadyFinished) {
+      // axios error may have response with status code
+      const statusCode = (error as { response?: { status?: number } }).response?.status ?? 501;
+      // Finish request span with error
+      this.requestTracer.finishRequestSpan(
+        requestMetadata.span,
+        { ...requestInfo, duration, statusCode, responseSize: 0 },
+        this.requestDataAttributes(requestMetadata.requestInfo),
+      );
+    }
 
     return requestInfo;
   }

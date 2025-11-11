@@ -17,6 +17,56 @@ jest.mock('@universal-kit/logger', () => ({
   })),
 }));
 
+// Mock OpenTelemetry API to track span lifecycle
+const mockSpans: Array<{
+  end: jest.Mock;
+  setAttributes: jest.Mock;
+  setStatus: jest.Mock;
+}> = [];
+
+jest.mock('@opentelemetry/api', () => ({
+  trace: {
+    getTracer: () => ({
+      startSpan: () => {
+        const mockSpan = {
+          setAttributes: jest.fn(),
+          setStatus: jest.fn(),
+          end: jest.fn(),
+        };
+        mockSpans.push(mockSpan);
+        return mockSpan;
+      },
+    }),
+  },
+  context: {
+    active: jest.fn(),
+  },
+  metrics: {
+    getMeter: () => ({
+      createCounter: () => ({
+        add: jest.fn(),
+      }),
+      createHistogram: () => ({
+        record: jest.fn(),
+      }),
+      createUpDownCounter: () => ({
+        add: jest.fn(),
+      }),
+    }),
+  },
+  SpanKind: {
+    CLIENT: 'CLIENT',
+    SERVER: 'SERVER',
+    INTERNAL: 'INTERNAL',
+    PRODUCER: 'PRODUCER',
+    CONSUMER: 'CONSUMER',
+  },
+  SpanStatusCode: {
+    OK: 'OK',
+    ERROR: 'ERROR',
+  },
+}));
+
 describe('AxiosWrapper Integration Tests', () => {
   let axiosWrapper: AxiosWrapper;
   let providerMetrics: ProviderMetricsManager;
@@ -24,6 +74,8 @@ describe('AxiosWrapper Integration Tests', () => {
 
   beforeEach(() => {
     jest.clearAllMocks();
+    // Clear mock spans array
+    mockSpans.length = 0;
 
     // Setup mock axios instance BEFORE creating AxiosWrapper
     mockAxiosInstance = {

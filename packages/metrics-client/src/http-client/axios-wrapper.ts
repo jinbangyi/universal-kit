@@ -129,10 +129,11 @@ export class AxiosWrapper extends BaseHttpClient {
       responseStatus,
       responseAlreadyProcessed,
     };
+    const spanAlreadyFinished = responseAlreadyProcessed;
 
     this.processRequestError(requestMetadata, error, {
       ...errorContext,
-    });
+    }, spanAlreadyFinished);
   }
 
   request(config: AxiosWrapperRequestConfig): Promise<AxiosResponse> {
