@@ -1,3 +1,4 @@
+/* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { AxiosWrapper } from '../http-client/axios-wrapper.js';
 import { ProviderMetricsManager } from '../metrics/api-provider-metrics.js';
 import axios from 'axios';
@@ -408,6 +409,164 @@ describe('AxiosWrapper Integration Tests', () => {
         'Error',
         true, // shouldDecrementActiveRequests
       );
+    });
+  });
+
+  describe('Params Handling', () => {
+    it('should handle params as plain object without errors', async () => {
+      // Arrange - Mock a successful request
+      (mockAxiosInstance.request as jest.Mock).mockImplementation((config) =>
+        mockAxiosInstance._simulateRequest(config, false),
+      );
+
+      // Spy on metrics manager to verify request was processed
+      const recordRequestStartSpy = jest.spyOn(providerMetrics, 'recordRequestStart');
+      const recordRequestCompleteSpy = jest.spyOn(providerMetrics, 'recordRequestComplete');
+
+      // Act - Make a request with params as plain object (typical Axios usage)
+      const response = await axiosWrapper.request({
+        url: 'https://api.example.com/search',
+        method: 'GET',
+        headers: { 'x-api-key': 'test-api-key-params' },
+        params: {
+          query: 'test',
+          limit: 10,
+          offset: 0,
+          filter: 'active',
+        },
+      });
+
+      // Assert - Request should complete successfully
+      expect(response).toBeDefined();
+      expect(response.data).toEqual({ success: true });
+
+      // Assert - Metrics should be recorded correctly
+      expect(recordRequestStartSpy).toHaveBeenCalledTimes(1);
+      expect(recordRequestCompleteSpy).toHaveBeenCalledTimes(1);
+
+      // Verify request info includes params correctly
+      const requestInfo = recordRequestStartSpy.mock.calls[0]?.[0];
+      expect(requestInfo).toBeDefined();
+      expect(requestInfo?.params).toBeDefined();
+      expect(requestInfo?.params).toEqual(
+        expect.objectContaining({
+          query: 'test',
+          limit: '10',
+          offset: '0',
+          filter: 'active',
+        }),
+      );
+    });
+
+    it('should handle params as URLSearchParams without errors', async () => {
+      // Arrange - Mock a successful request
+      (mockAxiosInstance.request as jest.Mock).mockImplementation((config) =>
+        mockAxiosInstance._simulateRequest(config, false),
+      );
+
+      // Spy on metrics manager to verify request was processed
+      const recordRequestStartSpy = jest.spyOn(providerMetrics, 'recordRequestStart');
+      const recordRequestCompleteSpy = jest.spyOn(providerMetrics, 'recordRequestComplete');
+
+      // Act - Make a request with params as URLSearchParams
+      const searchParams = new URLSearchParams({
+        query: 'test',
+        limit: '10',
+        offset: '0',
+      });
+
+      const response = await axiosWrapper.request({
+        url: 'https://api.example.com/search',
+        method: 'GET',
+        headers: { 'x-api-key': 'test-api-key-params' },
+        params: searchParams,
+      });
+
+      // Assert - Request should complete successfully
+      expect(response).toBeDefined();
+      expect(response.data).toEqual({ success: true });
+
+      // Assert - Metrics should be recorded correctly
+      expect(recordRequestStartSpy).toHaveBeenCalledTimes(1);
+      expect(recordRequestCompleteSpy).toHaveBeenCalledTimes(1);
+
+      // Verify request info includes params correctly
+      const requestInfo = recordRequestStartSpy.mock.calls[0]?.[0];
+      expect(requestInfo).toBeDefined();
+      expect(requestInfo?.params).toBeDefined();
+      expect(requestInfo?.params).toEqual(
+        expect.objectContaining({
+          query: 'test',
+          limit: '10',
+          offset: '0',
+        }),
+      );
+    });
+
+    it('should handle params with URL query string and object params combined', async () => {
+      // Arrange - Mock a successful request
+      (mockAxiosInstance.request as jest.Mock).mockImplementation((config) =>
+        mockAxiosInstance._simulateRequest(config, false),
+      );
+
+      // Spy on metrics manager
+      const recordRequestStartSpy = jest.spyOn(providerMetrics, 'recordRequestStart');
+
+      // Act - Make a request with both URL params and object params
+      await axiosWrapper.request({
+        url: 'https://api.example.com/search?existing=param',
+        method: 'GET',
+        headers: { 'x-api-key': 'test-api-key-params' },
+        params: {
+          query: 'test',
+          limit: 10,
+        },
+      });
+
+      // Assert - Verify request info merges both URL and object params
+      const requestInfo = recordRequestStartSpy.mock.calls[0]?.[0];
+      expect(requestInfo).toBeDefined();
+      expect(requestInfo?.params).toEqual(
+        expect.objectContaining({
+          existing: 'param', // From URL
+          query: 'test', // From params object
+          limit: '10', // From params object
+        }),
+      );
+    });
+
+    it('should extract API key from params object when configured', async () => {
+      // Arrange - Create wrapper with API key in query param
+      const wrapperWithQueryKey = new AxiosWrapper({
+        provider: 'test-api-provider-query',
+        apiKeyQueryParam: 'apiKey',
+      });
+
+      // Mock successful request
+      (mockAxiosInstance.request as jest.Mock).mockImplementation((config) =>
+        mockAxiosInstance._simulateRequest(config, false),
+      );
+
+      // Spy on metrics manager
+      const recordRequestStartSpy = jest.spyOn(
+        wrapperWithQueryKey.getProviderMetricsManager(),
+        'recordRequestStart',
+      );
+
+      // Act - Make a request with API key in params object
+      await wrapperWithQueryKey.request({
+        url: 'https://api.example.com/data',
+        method: 'GET',
+        params: {
+          apiKey: 'secret-key-12345',
+          data: 'value',
+        },
+      });
+
+      // Assert - API key should be extracted and hashed
+      const requestInfo = recordRequestStartSpy.mock.calls[0]?.[0];
+      expect(requestInfo).toBeDefined();
+      expect(requestInfo?.apiKey).toBe('secr****2345'); // Hashed version
     });
   });
 });

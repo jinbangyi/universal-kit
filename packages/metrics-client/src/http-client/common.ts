@@ -8,7 +8,7 @@ import type { AxiosRequestMetadata, ErrorContext, RequestInfo, ResponseInfo } fr
 export interface GeneralRequestConfig {
   url: string;
   method: string;
-  params?: URLSearchParams;
+  params?: URLSearchParams | Record<string, unknown>;
   headers?: RequestInit['headers'];
   body?: RequestInit['body'];
 }
@@ -122,7 +122,15 @@ export abstract class BaseHttpClient {
     // try to read from query param
     if (this.config.apiKeyQueryParam && config.params) {
       const queryParamKey = this.config.apiKeyQueryParam;
-      const paramValue = config.params.get(queryParamKey);
+      let paramValue: string | null = null;
+
+      if (config.params instanceof URLSearchParams) {
+        paramValue = config.params.get(queryParamKey);
+      } else if (typeof config.params === 'object') {
+        const value = config.params[queryParamKey];
+        paramValue = value != null ? String(value) : null;
+      }
+
       if (paramValue) return paramValue;
     }
 
@@ -224,8 +232,16 @@ export abstract class BaseHttpClient {
     const { host, pathname, params } = this.parseUrl(url);
     // combine params read from URL and config.params
     if (config.params) {
-      for (const [key, value] of config.params.entries()) {
-        params[key] = value;
+      // Handle different types of params (URLSearchParams, plain object, etc.)
+      if (config.params instanceof URLSearchParams) {
+        for (const [key, value] of config.params.entries()) {
+          params[key] = value;
+        }
+      } else if (typeof config.params === 'object') {
+        // Handle plain object params (e.g., from Axios)
+        for (const [key, value] of Object.entries(config.params)) {
+          params[key] = String(value);
+        }
       }
       config.params = new URLSearchParams(params);
     }
