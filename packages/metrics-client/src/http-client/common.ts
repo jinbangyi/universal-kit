@@ -36,6 +36,7 @@ const generalApiKeyHeaders = [
   'x-api-key',
   'authorization',
   'apikey',
+  'api-key',
   'OK-ACCESS-KEY',
   'x-cg-pro-api-key',
   'X-CMC_PRO_API_KEY',

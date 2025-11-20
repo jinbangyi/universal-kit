@@ -69,13 +69,25 @@ function pickAsyncHttpModuleOptions(options?: HttpModuleConfig): HttpModuleAsync
         'x-api-key',
         'authorization',
         'apikey',
+        'api-key',
         'OK-ACCESS-KEY',
         'x-cg-pro-api-key',
         'X-CMC_PRO_API_KEY',
         'AccessKey',
       ] header by default.(**ignore case**)
- *  - apiKeyQueryParam: name of the query param to use for api key
- *  - redactedHeaders: list of headers to redact from logs/metrics
+ *  - apiKeyQueryParam: same logic as apiKeyHeader but search in query params
+ *  - redactedHeaders: list of headers to redact from logs/metrics, default: [
+        'x-api-key',
+        'authorization',
+        'apikey',
+        'api-key',
+        'OK-ACCESS-KEY',
+        'x-cg-pro-api-key',
+        'X-CMC_PRO_API_KEY',
+        'AccessKey',
+        'OK-ACCESS-SIGN',
+        'OK-ACCESS-PASSPHRASE',
+      ].(**ignore case**)
  *  - HttpModule: custom HttpModule to use instead of the default one
  * @param httpModuleOptions options to pass to HttpModule.register or registerAsync
  * @param axiosWrapper wrapped axios instance

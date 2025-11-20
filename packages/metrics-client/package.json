@@ -1,6 +1,6 @@
 {
   "name": "@universal-kit/metrics-client",
-  "version": "0.1.8",
+  "version": "0.1.10",
   "description": "OpenTelemetry-based metrics HTTP client wrapper with API provider monitoring and enhanced tracing",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",
