@@ -7,7 +7,6 @@ import { createRequire } from 'node:module';
 import { AXIOS_INSTANCE_TOKEN } from '@nestjs/axios/dist/http.constants';
 import { DynamicModule } from '@nestjs/common';
 import { AxiosWrapper } from '../http-client/axios-wrapper.js';
-import { getCallerParentDirName } from './file.js';
 
 /**
  * Attempts to resolve the HttpModule from the consumer's node_modules
@@ -92,10 +91,10 @@ function resolveProviderName(
   }
 
   // use parent dir name where call this function as provider
-  const callerProvider = getCallerParentDirName([]);
-  if (callerProvider) {
-    return callerProvider;
-  }
+  // const callerProvider = getCallerParentDirName([]);
+  // if (callerProvider) {
+  //   return callerProvider;
+  // }
 
   throw new Error('Provider name must be specified either in options or via axiosWrapper');
 }
@@ -292,7 +291,7 @@ function injectWrappedAxiosInstance(
  */
 function getHttpModule(
   options: {
-    provider?: string
+    provider: string
     apiKeyHeader?: string
     apiKeyQueryParam?: string
     redactedHeaders?: string[]

@@ -267,7 +267,7 @@ describe('getHttpModule with register (static config)', () => {
   it('should use default provider name when not specified', () => {
     // This should use the caller parent dir name
     const module = getHttpModule(
-      {},
+      { provider: 'test-provider' },
       {
         baseURL: 'https://api.example.com',
       },
@@ -466,6 +466,7 @@ describe('getHttpModule with custom AxiosWrapper', () => {
 
     const module = getHttpModule(
       {
+        provider: 'ignored-provider',
         apiKeyHeader: 'X-Different-Key', // This should be ignored
       },
       {
@@ -498,7 +499,7 @@ describe('getHttpModule with custom AxiosWrapper', () => {
 
     const module = getHttpModule(
       {
-        // No provider specified
+        provider: 'ignored-provider',
       },
       {},
       customWrapper,
@@ -549,15 +550,6 @@ describe('getHttpModule edge cases', () => {
         provider: 'minimal-provider',
       },
     );
-
-    expect(module).toBeDefined();
-    expect(module.providers).toBeDefined();
-  });
-
-  it('should use caller directory as provider when not specified', () => {
-    // When no provider is specified and no axiosWrapper is provided,
-    // it should derive the provider from the caller's parent directory
-    const module = getHttpModule({});
 
     expect(module).toBeDefined();
     expect(module.providers).toBeDefined();

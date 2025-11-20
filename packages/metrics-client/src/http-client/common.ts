@@ -232,7 +232,7 @@ export abstract class BaseHttpClient {
 
   protected parseUrl(url: string): { host: string; pathname: string; params: Record<string, string> } {
     try {
-      console.log('console.log: parseUrl called with url:', url);
+      // console.log('console.log: parseUrl called with url:', url);
       const parsedUrl = new URL(url);
       const host = parsedUrl.hostname && parsedUrl.hostname.length > 0 ? parsedUrl.hostname : 'unknown';
       const pathname = parsedUrl.pathname && parsedUrl.pathname.length > 0 ? parsedUrl.pathname : '/';
@@ -345,7 +345,7 @@ export abstract class BaseHttpClient {
   protected processRequestStart(
     requestInfo: RequestInfo,
   ): RequestStartObject {
-    console.log('console.log - processRequestStart - requestInfo:', requestInfo);
+    // console.log('console.log - processRequestStart - requestInfo:', requestInfo);
     const startTime = Date.now();
 
     // Create request span for tracing
@@ -368,7 +368,7 @@ export abstract class BaseHttpClient {
     requestInfo: RequestInfo,
     requestStartObject: RequestStartObject,
   ): void {
-    console.log('console.log: processRequestEnd called');
+    // console.log('console.log: processRequestEnd called');
     const endTime = Date.now();
 
     // Log request end event
@@ -458,7 +458,7 @@ export abstract class BaseHttpClient {
 
     // axios error may have response with status code
     const statusCode = (error as { response?: { status?: number } }).response?.status ?? 501;
-    // Finish request span with error
+    // add request span with error
     this.requestTracer.addAttributesToSpan(
       requestMetadata.span,
       { ...requestInfo, duration, statusCode, responseSize: 0 },

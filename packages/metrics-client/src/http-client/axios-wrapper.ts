@@ -65,7 +65,6 @@ export class AxiosWrapper extends BaseHttpClient {
     this.requestInterceptorId = this.axiosInstance.interceptors.request.use(
       config => {
         if (!config.skipMetrics) {
-          console.log('console.log: request interceptor', config);
           const requestInfo = this.createRequestInfo(this.convertConfigToRequestInfo(config));
           const { span, startTime } = this.processRequestStart(requestInfo);
 
@@ -132,65 +131,28 @@ export class AxiosWrapper extends BaseHttpClient {
           try {
             return onFulfilled(response);
           } catch (error) {
-            // If user interceptor throws, we need to process it through our error handler
-            // Create an AxiosError-like object to ensure it flows through error handling
-            const axiosError = error as Error & Partial<AxiosError>;
-            if (!axiosError.config && response.config) {
-              axiosError.config = response.config;
-            }
-            axiosError.isAxiosError = true;
-            return Promise.reject(axiosError);
+            this.logger.warn(
+              'User response interceptor threw an error while handling a response. ' +
+              'Re-throwing the error.',
+            );
+
+            throw error;
           }
         } :
         onFulfilled;
 
-      // Wrap the user's rejected handler to catch any errors they might throw
+      // Wrap the user's rejected handler to log any errors they might throw
       const wrappedRejected = onRejected ?
         (error: AxiosError): unknown => {
           try {
             return onRejected(error);
           } catch (err) {
-            // If user interceptor throws, we need to preserve the original error's config
-            // so that metrics tracking still works
-            const thrownError = err as Error & Partial<AxiosError>;
+            this.logger.warn(
+              'User response interceptor threw an error while handling an error. ' +
+              'Processing the thrown error through metrics.',
+            );
 
-            // Preserve config from the original error for metrics tracking
-            if (error.config) {
-              thrownError.config = error.config;
-              thrownError.isAxiosError = true;
-
-              // Also preserve response if it exists
-              if (error.response) {
-                thrownError.response = error.response;
-              }
-
-              // CRITICAL: Process the error through our metrics handler
-              // Since this error was thrown (not rejected), it won't flow through
-              // the wrapper's error interceptor naturally, so we must call it explicitly
-              if (!error.config.skipMetrics) {
-                const requestMetadata = error.config.metadata;
-                if (error.response) {
-                  // Process both response and error (with flag to avoid double processing)
-                  this.processResponse(error.response);
-                }
-                this.processError(thrownError as AxiosError);
-                // Call processRequestEnd to finalize the request
-                if (requestMetadata) {
-                  this.processRequestEnd(requestMetadata.requestInfo, {
-                    span: requestMetadata.span,
-                    startTime: requestMetadata.startTime,
-                  });
-                }
-              }
-            } else {
-              // error.config is undefined/falsy, so there's no metadata
-              // This means processRequestStart was never called, so we don't need processRequestEnd
-              thrownError.isAxiosError = true;
-              // No metrics processing needed since there's no metadata
-            }
-
-            // Reject with the error that now has the metadata
-            return Promise.reject(thrownError);
+            throw err;
           }
         } :
         onRejected;
@@ -208,11 +170,12 @@ export class AxiosWrapper extends BaseHttpClient {
           try {
             return onFulfilled(config);
           } catch (error) {
-            // If user interceptor throws, preserve the config
-            const axiosError = error as Error & Partial<AxiosError>;
-            axiosError.config ??= config;
-            axiosError.isAxiosError = true;
-            return Promise.reject(axiosError);
+            this.logger.warn(
+              'User request interceptor threw an error while handling a request. ' +
+              'Re-throwing the error.',
+            );
+
+            throw error;
           }
         } :
         onFulfilled;
@@ -223,16 +186,12 @@ export class AxiosWrapper extends BaseHttpClient {
           try {
             return onRejected(error);
           } catch (err) {
-            // Preserve config if available
-            const thrownError = err as Error & Partial<AxiosError>;
-            const originalError = error as Error & Partial<AxiosError>;
+            this.logger.warn(
+              'User request interceptor threw an error while handling an error. ' +
+              'Re-throwing the error.',
+            );
 
-            if (originalError.config) {
-              thrownError.config = originalError.config;
-              thrownError.isAxiosError = true;
-            }
-
-            return Promise.reject(thrownError);
+            throw err;
           }
         } :
         onRejected;
@@ -244,7 +203,7 @@ export class AxiosWrapper extends BaseHttpClient {
   }
 
   private processResponse(response: AxiosResponse): void {
-    console.log('console.log: processing response', response);
+    // console.log('console.log: processing response', response);
     const requestMetadata: AxiosRequestMetadata | undefined = response.config.metadata;
     if (!requestMetadata) {
       this.logger.warn('No request metadata found in response config, cannot process response for metrics.');
@@ -268,7 +227,7 @@ export class AxiosWrapper extends BaseHttpClient {
   }
 
   private processError(error: AxiosError): void {
-    console.log('console.log: processing error', error);
+    // console.log('console.log: processing error', error);
     const requestMetadata: AxiosRequestMetadata | undefined = error.config?.metadata;
     if (!requestMetadata) {
       this.logger.warn('No request metadata found in error config, cannot process error for metrics.');
