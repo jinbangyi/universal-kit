@@ -218,6 +218,15 @@ export class ProviderMetricsManager {
     }
   }
 
+  recordRequestEnd(requestInfo: RequestInfo): void {
+    if (!this.config.enabled) return;
+
+    this.changeActiveRequests({
+      ...requestInfo,
+      api_key: requestInfo.apiKey,
+    }, -1);
+  }
+
   recordRequestComplete(responseInfo: ResponseInfo): void {
     if (!this.config.enabled) return;
 
@@ -257,18 +266,11 @@ export class ProviderMetricsManager {
         status_category: this.config.getStatusCategory(responseInfo.statusCode),
       });
     }
-
-    // Decrement active requests
-    this.changeActiveRequests({
-      ...responseInfo,
-      api_key: responseInfo.apiKey,
-    }, -1);
   }
 
   recordRequestError(
     requestInfo: RequestInfo,
     errorType: string,
-    shouldDecrementActiveRequests: boolean,
   ): void {
     if (!this.config.enabled) return;
 
@@ -280,14 +282,6 @@ export class ProviderMetricsManager {
       status_code: codeString,
       status_category: this.config.getStatusCategory(codeString),
     });
-
-    // Decrement active requests if requested (to avoid double-decrementing)
-    if (shouldDecrementActiveRequests) {
-      this.changeActiveRequests({
-        ...requestInfo,
-        api_key: requestInfo.apiKey,
-      }, -1);
-    }
   }
 
   private getStatusCategory(statusCode: number | string): string {

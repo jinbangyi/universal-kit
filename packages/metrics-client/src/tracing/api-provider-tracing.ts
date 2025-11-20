@@ -12,7 +12,7 @@ export interface RequestTraceConfig {
 }
 
 interface RequestEvent extends RequestInfo {
-  type: 'start' | 'complete' | 'error' | 'retry';
+  type: 'start' | 'complete' | 'error' | 'retry' | 'end';
   timestamp: number;
   statusCode?: number;
   duration?: number;
@@ -64,6 +64,15 @@ export class RequestTracer {
     return span;
   }
 
+  finishRequestSpan(
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars, no-unused-vars
+    span: Span | null, requestInfo: RequestInfo,
+  ): void {
+    if (!span || !this.config.enabled) return;
+
+    span.end();
+  }
+
   logRequestEvent(event: RequestEvent): void {
     if (!this.config.enabled || !this.config.logRequestEvents) return;
 
@@ -84,6 +93,12 @@ export class RequestTracer {
 
     switch (event.type) {
       case 'start':
+        this.logger.verbose(
+          baseMessage,
+          fullLogData,
+        );
+        break;
+      case 'end':
         this.logger.verbose(
           baseMessage,
           fullLogData,
@@ -149,8 +164,11 @@ export class RequestTracer {
     );
   }
 
-  finishRequestSpan(
-    span: Span | null, metrics: ResponseInfo, extraAttributes?: Record<string, string>,
+  // function add attributes to span
+  addAttributesToSpan(
+    span: Span | null,
+    metrics: ResponseInfo,
+    extraAttributes?: Record<string, string>,
   ): void {
     if (!span || !this.config.enabled) return;
 
@@ -173,8 +191,6 @@ export class RequestTracer {
         code: SpanStatusCode.OK,
       });
     }
-
-    span.end();
   }
 
   private sanitizeRequest(request: RequestInfo): Record<string, unknown> | undefined {

@@ -1,7 +1,7 @@
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { AxiosWrapper } from '../http-client/axios-wrapper.js';
 import { ProviderMetricsManager } from '../metrics/api-provider-metrics.js';
-import axios from 'axios';
+import axios, { AxiosError } from 'axios';
 
 // Mock axios
 jest.mock('axios');
@@ -239,7 +239,6 @@ describe('AxiosWrapper Integration Tests', () => {
             path: '/test',
           }),
           'Error', // error type (constructor name)
-          true, // shouldDecrementActiveRequests - should be true for network errors
         );
       });
 
@@ -306,7 +305,6 @@ describe('AxiosWrapper Integration Tests', () => {
             path: '/test',
           }),
           'Error', // error type
-          false, // shouldDecrementActiveRequests - should be false for HTTP errors (response already processed)
         );
       });
 
@@ -407,7 +405,6 @@ describe('AxiosWrapper Integration Tests', () => {
       expect(recordRequestErrorSpy).toHaveBeenCalledWith(
         expect.any(Object),
         'Error',
-        true, // shouldDecrementActiveRequests
       );
     });
   });
@@ -567,6 +564,275 @@ describe('AxiosWrapper Integration Tests', () => {
       const requestInfo = recordRequestStartSpy.mock.calls[0]?.[0];
       expect(requestInfo).toBeDefined();
       expect(requestInfo?.apiKey).toBe('secr****2345'); // Hashed version
+    });
+  });
+
+  describe('Custom Interceptor Handling', () => {
+    it('should wrap custom response interceptors to convert thrown errors to rejections', () => {
+      // Arrange - Get the axios instance
+      const axiosInstance = axiosWrapper.getAxiosInstance();
+
+      const customError = new Error('Custom interceptor error');
+
+      // Add a custom interceptor that throws an error
+      axiosInstance.interceptors.response.use(
+        // eslint-disable-next-line no-unused-vars
+        (response) => {
+          // interceptorWasCalled = true;
+          // Custom interceptor that throws an error
+          throw customError;
+        },
+        (error) => Promise.reject(error),
+      );
+
+      // Get the wrapped interceptor that was stored by the mock
+      const storedInterceptor = mockAxiosInstance._responseInterceptor;
+
+      // Assert - The stored interceptor should be the wrapped version
+      expect(storedInterceptor).toBeDefined();
+      expect(storedInterceptor.onFulfilled).toBeDefined();
+
+      // Test the wrapped interceptor
+      const mockResponse = {
+        status: 200,
+        data: {},
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      };
+
+      // The wrapped interceptor should catch the thrown error and convert it to a rejection
+      const result = storedInterceptor.onFulfilled(mockResponse);
+      expect(result).toBeInstanceOf(Promise);
+
+      // Verify the error is rejected, not thrown
+      return expect(result).rejects.toThrow('Custom interceptor error');
+    });
+
+    it('should allow custom interceptors to work normally when they don\'t throw', async () => {
+      // Arrange - Get the axios instance
+      const axiosInstance = axiosWrapper.getAxiosInstance();
+
+      let customInterceptorCalled = false;
+      let modifiedData = false;
+
+      // Add a custom interceptor that modifies the response
+      axiosInstance.interceptors.response.use(
+        (response) => {
+          customInterceptorCalled = true;
+          response.data = { ...response.data, modified: true };
+          modifiedData = true;
+          return response;
+        },
+        (error) => Promise.reject(error),
+      );
+
+      // Get the wrapped interceptor
+      const storedInterceptor = mockAxiosInstance._responseInterceptor;
+
+      // Test the wrapped interceptor with a mock response
+      const mockResponse = {
+        status: 200,
+        data: { original: true },
+        headers: {},
+        config: {},
+        statusText: 'OK',
+      };
+
+      // The wrapped interceptor should call the custom interceptor and return the modified response
+      const result = await storedInterceptor.onFulfilled(mockResponse);
+
+      // Assert - Custom interceptor should have been called and data should be modified
+      expect(customInterceptorCalled).toBe(true);
+      expect(modifiedData).toBe(true);
+      expect(result.data.modified).toBe(true);
+    });
+
+    it('should wrap custom error interceptors that only handle rejections', async () => {
+      // Arrange - Get the axios instance
+      const axiosInstance = axiosWrapper.getAxiosInstance();
+
+      let errorInterceptorCalled = false;
+      let retryAttempted = false;
+
+      // Add a custom interceptor with only error handler (like retry logic)
+      axiosInstance.interceptors.response.use(
+        undefined, // No success handler
+        (error) => {
+          errorInterceptorCalled = true;
+
+          // Simulate retry logic similar to the user's example
+          const retryCount = (error.config as any).__retryCount || 0;
+          if (retryCount < 2) {
+            (error.config as any).__retryCount = retryCount + 1;
+            retryAttempted = true;
+            // In real scenario, would retry the request
+            // For test, just return the error
+          }
+
+          return Promise.reject(error);
+        },
+      );
+
+      // Get the wrapped interceptor
+      const storedInterceptor = mockAxiosInstance._responseInterceptor;
+
+      // Test the wrapped error interceptor
+      const mockError = {
+        message: 'Request failed',
+        config: { url: 'https://api.example.com/test' },
+        isAxiosError: true,
+      };
+
+      // The wrapped interceptor should handle the error
+      expect(storedInterceptor).toBeDefined();
+      expect(storedInterceptor.onRejected).toBeDefined();
+
+      // Call the wrapped error handler
+      const result = storedInterceptor.onRejected(mockError);
+      expect(result).toBeInstanceOf(Promise);
+
+      // Verify the error is rejected
+      await expect(result).rejects.toMatchObject({ message: 'Request failed' });
+
+      // Assert - Error interceptor should have been called
+      expect(errorInterceptorCalled).toBe(true);
+      expect(retryAttempted).toBe(true);
+    });
+
+    it('should handle errors thrown in custom error interceptors', () => {
+      // Arrange - Get the axios instance
+      const axiosInstance = axiosWrapper.getAxiosInstance();
+
+      // Add a custom error interceptor that throws an error
+      axiosInstance.interceptors.response.use(
+        undefined,
+        (error) => {
+          // Simulate an error being thrown during error handling
+          throw new Error('Error handler itself failed');
+        },
+      );
+
+      // Get the wrapped interceptor
+      const storedInterceptor = mockAxiosInstance._responseInterceptor;
+
+      // Test the wrapped error interceptor
+      const mockError = {
+        message: 'Original error',
+        config: {},
+        isAxiosError: true,
+      };
+
+      // The wrapped interceptor should catch the thrown error and convert to rejection
+      const result = storedInterceptor.onRejected(mockError);
+      expect(result).toBeInstanceOf(Promise);
+
+      // Verify the thrown error is converted to a rejection
+      return expect(result).rejects.toThrow('Error handler itself failed');
+    });
+
+    it('should handle unexpected TypeErrors in custom error interceptors', async () => {
+      // Arrange - Get the axios instance
+      const axiosInstance = axiosWrapper.getAxiosInstance();
+
+      // Add a custom error interceptor that throws a TypeError (like the user's example)
+      // This simulates: Cannot read properties of undefined (reading '__retryCount')
+      axiosInstance.interceptors.response.use(
+        undefined,
+        (error) => {
+          // This will throw TypeError: Cannot read properties of undefined (reading '__retryCount')
+          // when error.config is undefined
+          const retryCount = error.config['__retryCount'];
+          return Promise.reject(error);
+        },
+      );
+
+      // Get the wrapped interceptor
+      const storedInterceptor = mockAxiosInstance._responseInterceptor;
+
+      // Create a mock error without config (which causes the TypeError)
+      const mockError = {
+        message: 'Network error',
+        // Note: no config property, so error.config['__retryCount'] will throw TypeError
+        isAxiosError: true,
+      } as any;
+
+      // The wrapped interceptor should catch the TypeError and convert to rejection
+      const result = storedInterceptor.onRejected(mockError);
+      expect(result).toBeInstanceOf(Promise);
+
+      // Verify the TypeError is caught and rejected
+      await expect(result).rejects.toThrow(TypeError);
+    });
+
+    // eslint-disable-next-line max-len
+    it('should correctly track api_provider_active_requests metric when user interceptor throws but original error has config', async () => {
+      // Arrange - Get the axios instance
+      const axiosInstance = axiosWrapper.getAxiosInstance();
+
+      // Add a custom error interceptor that throws an error
+      axiosInstance.interceptors.response.use(
+        undefined,
+        (error) => {
+          // Simulate user interceptor throwing an error (like accessing undefined property)
+          throw new TypeError('Cannot read property of undefined');
+        },
+      );
+
+      // Mock a failed request
+      const mockError = new Error('Network Error') as any;
+      mockError.config = {
+        url: 'https://api.example.com/test',
+        method: 'GET',
+        headers: { 'x-api-key': 'test-api-key-999' },
+        metadata: {
+          startTime: Date.now(),
+          requestInfo: {
+            requestId: 'req_1234567890_test',
+            provider: 'test-api-provider:AxiosWrapper',
+            apiKey: 'test****-999',
+            url: 'https://api.example.com/test',
+            host: 'api.example.com',
+            method: 'GET',
+            path: '/test',
+            headers: { 'x-api-key': '****' },
+          },
+        },
+      };
+
+      (mockAxiosInstance.request as jest.Mock).mockImplementation((config) =>
+        mockAxiosInstance._simulateRequest(config, true, mockError),
+      );
+
+      // Spy on the metrics manager methods
+      const recordRequestStartSpy = jest.spyOn(providerMetrics, 'recordRequestStart');
+      const recordRequestEndSpy = jest.spyOn(providerMetrics, 'recordRequestEnd');
+      const recordRequestErrorSpy = jest.spyOn(providerMetrics, 'recordRequestError');
+
+      // Act - Make a request that will fail and trigger the throwing interceptor
+      const requestPromise = axiosWrapper.request({
+        url: 'https://api.example.com/test',
+        method: 'GET',
+        headers: { 'x-api-key': 'test-api-key-999' },
+      });
+
+      // Assert that the request fails with the TypeError from the interceptor
+      await expect(requestPromise).rejects.toThrow(TypeError);
+
+      // Assert that metrics were recorded correctly
+      expect(recordRequestStartSpy).toHaveBeenCalledTimes(1);
+      expect(recordRequestErrorSpy).toHaveBeenCalledTimes(1);
+      expect(recordRequestEndSpy).toHaveBeenCalledTimes(1);
+
+      // Verify that recordRequestEnd was called to decrement active requests
+      expect(recordRequestEndSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: 'test-api-provider:AxiosWrapper',
+          host: 'api.example.com',
+          method: 'GET',
+          path: '/test',
+        }),
+      );
     });
   });
 });

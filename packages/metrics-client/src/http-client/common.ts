@@ -5,6 +5,11 @@ import { ProviderMetricsManager } from '../metrics/api-provider-metrics.js';
 import { RequestTracer, type RequestTraceConfig } from '../tracing/api-provider-tracing.js';
 import type { AxiosRequestMetadata, ErrorContext, RequestInfo, ResponseInfo } from '../typing.js';
 
+interface RequestStartObject {
+  span: Span | null;
+  startTime: number;
+}
+
 export interface GeneralRequestConfig {
   url: string;
   method: string;
@@ -48,6 +53,10 @@ const defaultRedactedHeaders = [
   'OK-ACCESS-PASSPHRASE',
 ].map(header => header.toLowerCase());
 
+/**
+ * processRequestStart -- ok    -> processRequestComplete -- finish -> processRequestEnd
+ *                     -- error -> processRequestError    -- finish -> processRequestEnd
+ */
 export abstract class BaseHttpClient {
   protected config: Required<BaseWrapperConfig>;
   protected logger: Logger;
@@ -223,6 +232,7 @@ export abstract class BaseHttpClient {
 
   protected parseUrl(url: string): { host: string; pathname: string; params: Record<string, string> } {
     try {
+      console.log('console.log: parseUrl called with url:', url);
       const parsedUrl = new URL(url);
       const host = parsedUrl.hostname && parsedUrl.hostname.length > 0 ? parsedUrl.hostname : 'unknown';
       const pathname = parsedUrl.pathname && parsedUrl.pathname.length > 0 ? parsedUrl.pathname : '/';
@@ -268,9 +278,8 @@ export abstract class BaseHttpClient {
   protected createRequestInfo(
     config: GeneralRequestConfig,
   ): RequestInfo {
-    const url = config.url ?? '';
     const requestId = this.generateRequestId();
-    const { host, pathname, params } = this.parseUrl(url);
+    const { host, pathname, params } = this.parseUrl(config.url);
     // combine params read from URL and config.params
     if (config.params) {
       // Handle different types of params (URLSearchParams, plain object, etc.)
@@ -299,7 +308,7 @@ export abstract class BaseHttpClient {
       requestId,
       provider: this.config.provider,
       apiKey,
-      url,
+      url: config.url,
       host,
       method,
       path: pathname,
@@ -335,7 +344,8 @@ export abstract class BaseHttpClient {
 
   protected processRequestStart(
     requestInfo: RequestInfo,
-  ): { span: Span | null; startTime: number } {
+  ): RequestStartObject {
+    console.log('console.log - processRequestStart - requestInfo:', requestInfo);
     const startTime = Date.now();
 
     // Create request span for tracing
@@ -352,6 +362,31 @@ export abstract class BaseHttpClient {
     this.providerMetrics.recordRequestStart(requestInfo);
 
     return { span, startTime };
+  }
+
+  protected processRequestEnd(
+    requestInfo: RequestInfo,
+    requestStartObject: RequestStartObject,
+  ): void {
+    console.log('console.log: processRequestEnd called');
+    const endTime = Date.now();
+
+    // Log request end event
+    this.requestTracer.logRequestEvent({
+      ...requestInfo,
+      type: 'end',
+      timestamp: endTime,
+      duration: (endTime - requestStartObject.startTime),
+    });
+
+    // Record provider metrics end
+    this.providerMetrics.recordRequestEnd(requestInfo);
+
+    // Finish request span
+    this.requestTracer.finishRequestSpan(
+      requestStartObject.span,
+      requestInfo,
+    );
   }
 
   protected processRequestComplete(
@@ -378,7 +413,7 @@ export abstract class BaseHttpClient {
     });
 
     // Finish request span
-    this.requestTracer.finishRequestSpan(
+    this.requestTracer.addAttributesToSpan(
       requestMetadata.span,
       responseInfo,
     );
@@ -390,18 +425,17 @@ export abstract class BaseHttpClient {
     requestMetadata: AxiosRequestMetadata,
     error: Error,
     responseContext?: ErrorContext,
-    spanAlreadyFinished: boolean = false,
   ): RequestInfo {
     const duration = Date.now() - requestMetadata.startTime;
     const { requestInfo } = requestMetadata;
 
     // Record provider error metrics
     // If response was already processed (for Axios errors with response), don't decrement active requests again
-    const shouldDecrementActiveRequests = !responseContext?.responseAlreadyProcessed;
+    // const shouldDecrementActiveRequests = !responseContext?.responseAlreadyProcessed;
     this.providerMetrics.recordRequestError(
       requestInfo,
       error.constructor.name,
-      shouldDecrementActiveRequests,
+      // shouldDecrementActiveRequests,
     );
 
     // Log request error
@@ -422,17 +456,14 @@ export abstract class BaseHttpClient {
       );
     }
 
-    // Only finish the span if it hasn't been finished already
-    if (!spanAlreadyFinished) {
-      // axios error may have response with status code
-      const statusCode = (error as { response?: { status?: number } }).response?.status ?? 501;
-      // Finish request span with error
-      this.requestTracer.finishRequestSpan(
-        requestMetadata.span,
-        { ...requestInfo, duration, statusCode, responseSize: 0 },
-        this.requestDataAttributes(requestMetadata.requestInfo),
-      );
-    }
+    // axios error may have response with status code
+    const statusCode = (error as { response?: { status?: number } }).response?.status ?? 501;
+    // Finish request span with error
+    this.requestTracer.addAttributesToSpan(
+      requestMetadata.span,
+      { ...requestInfo, duration, statusCode, responseSize: 0 },
+      this.requestDataAttributes(requestMetadata.requestInfo),
+    );
 
     return requestInfo;
   }

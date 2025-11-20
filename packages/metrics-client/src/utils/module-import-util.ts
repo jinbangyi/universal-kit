@@ -1,10 +1,18 @@
-import { HttpModule as DefaultHttpModule, HttpModuleAsyncOptions, HttpModuleOptions } from '@nestjs/axios';
+import {
+  HttpModule as DefaultHttpModule,
+  HttpModuleAsyncOptions,
+  HttpModuleOptions,
+} from '@nestjs/axios';
 import { createRequire } from 'node:module';
 import { AXIOS_INSTANCE_TOKEN } from '@nestjs/axios/dist/http.constants';
 import { DynamicModule } from '@nestjs/common';
 import { AxiosWrapper } from '../http-client/axios-wrapper.js';
 import { getCallerParentDirName } from './file.js';
 
+/**
+ * Attempts to resolve the HttpModule from the consumer's node_modules
+ * to ensure we use the same instance and avoid multiple package installations
+ */
 function resolveConsumerHttpModule(): typeof DefaultHttpModule | undefined {
   try {
     const consumerRequire = createRequire(`${process.cwd()}/`);
@@ -28,6 +36,10 @@ const ASYNC_ONLY_KEYS = [
 const ASYNC_ONLY_KEY_SET = new Set<keyof HttpModuleAsyncOptions>(ASYNC_ONLY_KEYS);
 const ASYNC_KEYS_WITH_GLOBAL = [...ASYNC_ONLY_KEYS, 'global'] as const;
 
+/**
+ * Extracts only the static HTTP options from the config,
+ * filtering out async-only properties
+ */
 function extractStaticHttpOptions(options?: HttpModuleConfig): HttpModuleOptions {
   if (!options) {
     return {};
@@ -44,6 +56,9 @@ function extractStaticHttpOptions(options?: HttpModuleConfig): HttpModuleOptions
   return staticOptions as HttpModuleOptions;
 }
 
+/**
+ * Extracts only the async HTTP module options from the config
+ */
 function pickAsyncHttpModuleOptions(options?: HttpModuleConfig): HttpModuleAsyncOptions {
   if (!options) {
     return {};
@@ -62,6 +77,188 @@ function pickAsyncHttpModuleOptions(options?: HttpModuleConfig): HttpModuleAsync
 }
 
 /**
+ * Resolves the provider name from options, axiosWrapper, or caller directory
+ */
+function resolveProviderName(
+  providerOption: string | undefined,
+  axiosWrapper?: AxiosWrapper,
+): string {
+  if (providerOption) {
+    return providerOption;
+  }
+
+  if (axiosWrapper) {
+    return axiosWrapper.getProviderName();
+  }
+
+  // use parent dir name where call this function as provider
+  const callerProvider = getCallerParentDirName([]);
+  if (callerProvider) {
+    return callerProvider;
+  }
+
+  throw new Error('Provider name must be specified either in options or via axiosWrapper');
+}
+
+/**
+ * Creates the appropriate HttpModule based on the configuration
+ */
+function createHttpModule(
+  HttpModule: typeof DefaultHttpModule,
+  staticHttpConfig: HttpModuleOptions,
+  asyncHttpConfig: HttpModuleAsyncOptions,
+  asyncFactory?: HttpModuleFactory,
+  hasClassOrExisting?: boolean,
+): DynamicModule {
+  if (typeof asyncFactory === 'function') {
+    // Use registerAsync with a factory that merges static and dynamic config
+    return HttpModule.registerAsync({
+      ...asyncHttpConfig,
+      useFactory: async (...factoryArgs: Parameters<HttpModuleFactory>) => {
+        const resolvedConfig = await asyncFactory(...factoryArgs);
+        return {
+          ...staticHttpConfig,
+          ...resolvedConfig,
+        };
+      },
+    });
+  }
+
+  if (hasClassOrExisting) {
+    // Use registerAsync with useClass or useExisting
+    return HttpModule.registerAsync(asyncHttpConfig);
+  }
+
+  // Use simple register for static configuration only
+  return HttpModule.register(staticHttpConfig);
+}
+
+/**
+ * Replaces the AXIOS_INSTANCE_TOKEN provider with our wrapped axios instance
+ * For async configurations (useClass/useExisting/useFactory), this creates a factory
+ * that wraps the axios instance dynamically when it's resolved by NestJS DI
+ */
+function injectWrappedAxiosInstance(
+  module: DynamicModule,
+  HttpModule: typeof DefaultHttpModule,
+  options: {
+    provider: string
+    apiKeyHeader?: string
+    apiKeyQueryParam?: string
+    redactedHeaders?: string[]
+    axiosWrapper?: AxiosWrapper
+    staticConfig?: HttpModuleOptions
+  },
+): DynamicModule {
+  const { provider, axiosWrapper, staticConfig, ...wrapperOptions } = options;
+
+  // Get the static providers from HttpModule's @Module decorator metadata
+  const staticProviders = Reflect.getMetadata('providers', HttpModule) ?? [];
+
+  // Filter out AXIOS_INSTANCE_TOKEN from staticProviders as we'll replace it
+  const newProviders = staticProviders.filter(
+    (p: unknown) =>
+      !(typeof p === 'object' && p !== null && 'provide' in p && p.provide === AXIOS_INSTANCE_TOKEN),
+  );
+
+  // Find the original AXIOS_INSTANCE_TOKEN provider from the module
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let originalAxiosProvider: any = null;
+  for (const p of module.providers ?? []) {
+    if (
+      typeof p === 'object' &&
+      'provide' in p &&
+      p.provide === AXIOS_INSTANCE_TOKEN
+    ) {
+      originalAxiosProvider = p;
+      break;
+    }
+  }
+
+  // Add other providers from the module (except the original AXIOS_INSTANCE_TOKEN)
+  for (const p of module.providers ?? []) {
+    if (
+      typeof p === 'object' &&
+      'provide' in p &&
+      p.provide === AXIOS_INSTANCE_TOKEN
+    ) {
+      continue; // Skip the original axios instance provider
+    }
+    newProviders.push(p);
+  }
+
+  // If we have a pre-configured axiosWrapper, use it directly
+  if (axiosWrapper) {
+    newProviders.push({
+      provide: AXIOS_INSTANCE_TOKEN,
+      useValue: axiosWrapper.getAxiosInstance(),
+    });
+  } else if (originalAxiosProvider && 'useFactory' in originalAxiosProvider) {
+    // For async providers (useFactory from useClass/useExisting/custom factory),
+    // wrap the factory to create AxiosWrapper with the resolved config
+    const originalFactory = originalAxiosProvider.useFactory;
+    const originalInject = originalAxiosProvider.inject;
+
+    newProviders.push({
+      provide: AXIOS_INSTANCE_TOKEN,
+      inject: originalInject,
+      useFactory: async (...args: unknown[]) => {
+        // Get the original axios instance or config
+        const originalResult = await originalFactory(...args);
+
+        // Create AxiosWrapper with the resolved config
+        const wrapper = new AxiosWrapper(
+          {
+            provider,
+            ...wrapperOptions,
+            redactedHeaders: wrapperOptions.redactedHeaders ?? [],
+          },
+          undefined,
+          originalResult?.defaults ?? originalResult ?? staticConfig,
+        );
+
+        return wrapper.getAxiosInstance();
+      },
+    });
+  } else if (originalAxiosProvider && 'useValue' in originalAxiosProvider) {
+    // For static providers with useValue
+    const wrapper = new AxiosWrapper(
+      {
+        provider,
+        ...wrapperOptions,
+        redactedHeaders: wrapperOptions.redactedHeaders ?? [],
+      },
+      undefined,
+      originalAxiosProvider.useValue?.defaults ?? staticConfig,
+    );
+
+    newProviders.push({
+      provide: AXIOS_INSTANCE_TOKEN,
+      useValue: wrapper.getAxiosInstance(),
+    });
+  } else {
+    // Fallback: create with static config
+    const wrapper = new AxiosWrapper(
+      {
+        provider,
+        ...wrapperOptions,
+        redactedHeaders: wrapperOptions.redactedHeaders ?? [],
+      },
+      undefined,
+      staticConfig,
+    );
+
+    newProviders.push({
+      provide: AXIOS_INSTANCE_TOKEN,
+      useValue: wrapper.getAxiosInstance(),
+    });
+  }
+
+  return {
+    ...module,
+    providers: newProviders,
+  };
+}/**
  * get a wrapped HttpModule for otel metrics
  * @param options options to configure the HttpModule
  *  - provider: use axiosWrapper's provider if it is provided, otherwise use the parent dirname of the caller file
@@ -105,85 +302,43 @@ function getHttpModule(
   httpModuleOptions?: HttpModuleConfig,
   axiosWrapper?: AxiosWrapper,
 ): DynamicModule {
-  if (!options.provider) {
-    if (axiosWrapper) {
-      options.provider = axiosWrapper.getProviderName();
-    } else {
-      // use parent dir name where call this function as provider
-      options.provider = getCallerParentDirName([]) ?? undefined;
-    }
-  }
+  // Step 1: Resolve provider name
+  const provider = resolveProviderName(options.provider, axiosWrapper);
 
-  if (!options.provider) {
-    throw new Error('Provider name must be specified either in options or via axiosWrapper');
-  }
-
-  axiosWrapper ??= new AxiosWrapper({
-    provider: options.provider,
-    apiKeyHeader: options.apiKeyHeader,
-    apiKeyQueryParam: options.apiKeyQueryParam,
-    redactedHeaders: options.redactedHeaders ?? [],
-  });
-
-  const moduleOptions: HttpModuleConfig = httpModuleOptions ?? {};
+  // Step 2: Resolve which HttpModule to use (consumer's or default)
   const consumerHttpModule = resolveConsumerHttpModule();
   const HttpModule = options.HttpModule ?? consumerHttpModule ?? DefaultHttpModule;
 
-  // Use the consumer's HttpModule if provided, otherwise use the default one
-  // const HttpModule = options.HttpModule ?? DefaultHttpModule;
+  // Step 3: Extract static and async configurations
+  const staticHttpConfig = extractStaticHttpOptions(httpModuleOptions);
+  const asyncHttpConfig = pickAsyncHttpModuleOptions(httpModuleOptions);
+  const asyncFactory = httpModuleOptions?.useFactory;
+  const hasClassOrExisting = Boolean(
+    httpModuleOptions?.useClass ?? httpModuleOptions?.useExisting,
+  );
 
-  const staticHttpConfig = extractStaticHttpOptions(moduleOptions);
-  const asyncHttpConfig = pickAsyncHttpModuleOptions(moduleOptions);
-  const asyncFactory = moduleOptions.useFactory;
-  const hasClassOrExisting = Boolean(moduleOptions.useClass ?? moduleOptions.useExisting);
+  // Step 4: Create the base HttpModule
+  const module = createHttpModule(
+    HttpModule,
+    staticHttpConfig,
+    asyncHttpConfig,
+    asyncFactory,
+    hasClassOrExisting,
+  );
 
-  let module: DynamicModule;
-
-  if (typeof asyncFactory === 'function') {
-    module = HttpModule.registerAsync({
-      ...asyncHttpConfig,
-      useFactory: async (...factoryArgs: Parameters<HttpModuleFactory>) => {
-        const resolvedConfig = await asyncFactory(...factoryArgs);
-        return {
-          ...staticHttpConfig,
-          ...resolvedConfig,
-        };
-      },
-    });
-  } else if (hasClassOrExisting) {
-    module = HttpModule.registerAsync(asyncHttpConfig);
-  } else {
-    module = HttpModule.register(staticHttpConfig);
-  }
-
-  // Get the static providers and exports from HttpModule's @Module decorator metadata
-  // This ensures we use the same HttpService class reference as the consumer's node_modules
-  const staticProviders = Reflect.getMetadata('providers', HttpModule) ?? [];
-  const staticExports = Reflect.getMetadata('exports', HttpModule) ?? [];
-
-  const newProviders = [...staticProviders];
-
-  // use our axios instance instead of the default one
-  for (const provider of module.providers ?? []) {
-    if (typeof provider === 'object' && 'provide' in provider && provider.provide === AXIOS_INSTANCE_TOKEN) {
-      // Skip this provider as we'll replace it below
-      continue;
-    } else {
-      newProviders.push(provider);
-    }
-  }
-
-  // Always add our custom axios instance
-  newProviders.push({
-    provide: AXIOS_INSTANCE_TOKEN,
-    useValue: axiosWrapper.getAxiosInstance(),
-  });
-
-  return {
-    ...module,
-    providers: newProviders,
-    exports: staticExports, // Use the static exports which include HttpService
-  };
+  // Step 5: Inject our wrapped axios instance into the module
+  return injectWrappedAxiosInstance(
+    module,
+    HttpModule,
+    {
+      provider,
+      apiKeyHeader: options.apiKeyHeader,
+      apiKeyQueryParam: options.apiKeyQueryParam,
+      redactedHeaders: options.redactedHeaders,
+      axiosWrapper,
+      staticConfig: staticHttpConfig,
+    },
+  );
 }
 
 export { getHttpModule };

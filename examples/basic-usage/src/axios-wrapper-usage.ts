@@ -359,6 +359,69 @@ function setupInterceptors(): AxiosWrapper {
   return client;
 }
 
+/**
+ * Example 8b: Custom interceptors with error handling
+ * Demonstrates that errors thrown in custom interceptors are properly handled
+ */
+async function demonstrateCustomInterceptorErrorHandling(): Promise<void> {
+  console.log('Setting up custom interceptor with error handling...');
+  
+  const client = createConfiguredAxiosWrapper();
+  const axiosInstance = client.getAxiosInstance();
+
+  // Add a custom response interceptor that might throw an error
+  axiosInstance.interceptors.response.use(
+    response => {
+      console.log('Custom interceptor processing response...');
+      
+      // Simulate conditional error throwing (e.g., validation logic)
+      if (response.data && isRecord(response.data) && response.data.shouldFail) {
+        console.log('Custom interceptor throwing error for invalid data');
+        throw new Error('Custom validation failed: Invalid response data');
+      }
+
+      console.log('Custom interceptor passed validation');
+      return response;
+    },
+    error => {
+      console.error('Custom interceptor caught error:', getErrorMessage(error));
+      return Promise.reject(error);
+    },
+  );
+
+  try {
+    // Make a request - the wrapper ensures metrics are still collected
+    // even if the custom interceptor throws an error
+    console.log('Making request that will trigger custom interceptor...');
+    
+    await client.request({
+      url: 'https://jsonplaceholder.typicode.com/posts/1',
+      method: 'GET',
+    });
+
+    console.log('✅ Request succeeded with custom interceptor');
+  } catch (error) {
+    console.log('⚠️  Request failed (expected if data validation fails)');
+    console.log('Error:', getErrorMessage(error));
+    
+    const metrics = getErrorMetrics(error);
+    if (metrics) {
+      console.log('Metrics were still recorded:', {
+        requestId: metrics.requestId,
+        method: metrics.method,
+        url: metrics.url,
+        duration: metrics.duration,
+      });
+    }
+  }
+
+  console.log('\nNote: The wrapper automatically converts thrown errors in');
+  console.log('custom interceptors to rejected promises, ensuring that:');
+  console.log('1. Errors are properly caught and handled');
+  console.log('2. Metrics are still collected');
+  console.log('3. The error propagates correctly to the caller\n');
+}
+
 // ============================================================================
 // REAL-WORLD SCENARIOS
 // ============================================================================
@@ -589,6 +652,7 @@ export {
   demonstrateMetricsAccess,
   demonstrateErrorHandling,
   setupInterceptors,
+  demonstrateCustomInterceptorErrorHandling,
   uploadFileWithProgress,
   parallelRequests,
   demonstrateRequestCancellation,
