@@ -32,6 +32,20 @@ export interface BaseWrapperConfig {
 }
 
 export const defaultApiKey = 'NOT_FOUND_API_KEY';
+const generalApiKeyHeaders = [
+  'x-api-key',
+  'authorization',
+  'apikey',
+  'OK-ACCESS-KEY',
+  'x-cg-pro-api-key',
+  'X-CMC_PRO_API_KEY',
+  'AccessKey',
+].map(header => header.toLowerCase());
+const defaultRedactedHeaders = [
+  ...generalApiKeyHeaders,
+  'OK-ACCESS-SIGN',
+  'OK-ACCESS-PASSPHRASE',
+].map(header => header.toLowerCase());
 
 export abstract class BaseHttpClient {
   protected config: Required<BaseWrapperConfig>;
@@ -42,15 +56,15 @@ export abstract class BaseHttpClient {
   constructor(config: BaseWrapperConfig, logger?: Logger) {
     this.config = {
       getApiKey: this.getDefaultApiKey.bind(this),
-      apiKeyHeader: 'x-api-key',
-      apiKeyQueryParam: 'x-api-key',
+      apiKeyHeader: '',
+      apiKeyQueryParam: '',
       retryConfig: {
         attempts: 0,
         delay: 1000,
       },
       traceFailedRequests: true,
       logRequestEvents: true,
-      redactedHeaders: [],
+      redactedHeaders: defaultRedactedHeaders,
       ...config,
     };
 
@@ -104,34 +118,60 @@ export abstract class BaseHttpClient {
   }
 
   private getDefaultApiKey(config: GeneralRequestConfig): string {
-    const normalizedHeaders = this.normalizeHeaders(config.headers);
+    const _normalizedHeaders = this.normalizeHeaders(config.headers);
+    const normalizedHeaders: Record<string, string> = {};
+    // lowercase key _normalizedHeaders
+    for (const key of Object.keys(_normalizedHeaders)) {
+      if (!_normalizedHeaders[key]) continue;
+      normalizedHeaders[key.toLowerCase()] = _normalizedHeaders[key];
+    }
+
+    let headers: string[] = [];
     // try lowercase, uppercase, and original case
-    if (this.config.apiKeyHeader === undefined && this.config.apiKeyQueryParam === undefined) {
-      return defaultApiKey;
+    if (
+      (this.config.apiKeyHeader === undefined || this.config.apiKeyHeader === '') &&
+      (this.config.apiKeyQueryParam === undefined || this.config.apiKeyQueryParam === '')
+    ) {
+      headers = generalApiKeyHeaders;
+    } else {
+      headers = [
+        (this.config.apiKeyHeader ?? '').toLowerCase(),
+      ];
     }
 
     // try to read from header
-    const headers = [
-      this.config.apiKeyHeader,
-      this.config.apiKeyHeader.toLowerCase(),
-      this.config.apiKeyHeader.toUpperCase(),
-    ];
     const apiKey = headers.map(header => normalizedHeaders[header]).find(Boolean);
     if (apiKey) return apiKey;
 
     // try to read from query param
-    if (this.config.apiKeyQueryParam && config.params) {
-      const queryParamKey = this.config.apiKeyQueryParam;
-      let paramValue: string | null = null;
+    if (config.params) {
+      let queryParamKeys: string[] = [];
 
-      if (config.params instanceof URLSearchParams) {
-        paramValue = config.params.get(queryParamKey);
-      } else if (typeof config.params === 'object') {
-        const value = config.params[queryParamKey];
-        paramValue = value != null ? String(value) : null;
+      if (this.config.apiKeyQueryParam === undefined || this.config.apiKeyQueryParam === '') {
+        queryParamKeys = generalApiKeyHeaders;
+      } else if (this.config.apiKeyQueryParam) {
+        queryParamKeys = [this.config.apiKeyQueryParam.toLowerCase()];
       }
 
-      if (paramValue) return paramValue;
+      if (queryParamKeys.length > 0) {
+        const normalizedParamKeys = new Set(queryParamKeys.map(key => key.toLowerCase()));
+
+        if (config.params instanceof URLSearchParams) {
+          for (const [key, value] of config.params.entries()) {
+            if (normalizedParamKeys.has(key.toLowerCase()) && value) {
+              return value;
+            }
+          }
+        } else if (typeof config.params === 'object') {
+          const paramsObject = config.params;
+          for (const [key, value] of Object.entries(paramsObject)) {
+            if (value == null) continue;
+            if (normalizedParamKeys.has(key.toLowerCase())) {
+              return String(value);
+            }
+          }
+        }
+      }
     }
 
     return defaultApiKey;
@@ -402,5 +442,9 @@ export abstract class BaseHttpClient {
 
   getRequestTracer(): RequestTracer {
     return this.requestTracer;
+  }
+
+  getProviderName(): string {
+    return this.config.provider;
   }
 }
