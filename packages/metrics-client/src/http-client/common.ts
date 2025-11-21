@@ -246,6 +246,7 @@ export abstract class BaseHttpClient {
       const [rawPath, rawQuery] = url.split('?');
       const pathname = rawPath && rawPath.length > 0 ? rawPath : '/';
       const query = rawQuery ?? '';
+      this.logger.warn(`Failed to parse URL: ${url}, using fallback parsing.`);
       return {
         host: 'localhost',
         pathname,

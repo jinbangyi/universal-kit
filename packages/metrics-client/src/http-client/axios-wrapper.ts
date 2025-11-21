@@ -51,8 +51,20 @@ export class AxiosWrapper extends BaseHttpClient {
   }
 
   private convertConfigToRequestInfo(config: InternalAxiosRequestConfig): GeneralRequestConfig {
+    // the url should combine baseURL and url if both are present
+    let fullUrl = config.url ?? '';
+    // Use config.baseURL if available, otherwise fall back to instance defaults
+    const baseURL = config.baseURL ?? this.axiosInstance?.defaults?.baseURL;
+    if (baseURL) {
+      try {
+        fullUrl = new URL(fullUrl, baseURL).toString();
+      } catch {
+        this.logger.warn(`Failed to parse URL: ${fullUrl} with baseURL: ${baseURL}, using fallback parsing.`);
+      }
+    }
+
     return {
-      url: config.url ?? '',
+      url: fullUrl,
       method: config.method ?? 'GET',
       headers: config.headers,
       body: config.data,

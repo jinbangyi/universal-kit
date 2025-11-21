@@ -5,6 +5,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { HttpModuleOptions, HttpModuleOptionsFactory } from '@nestjs/axios';
 import { Injectable, Module } from '@nestjs/common';
 import { AxiosInstance } from 'axios';
+import nock from 'nock';
 import { getHttpModule } from '../module-import-util.js';
 
 // Mock dependencies
@@ -87,7 +88,7 @@ class ConstantsService {
 // Test implementation of HttpModuleOptionsFactory with dependencies (similar to CgkApiConfigService)
 @Injectable()
 class CgkApiConfigService implements HttpModuleOptionsFactory {
-  constructor(private readonly appConfig: AppConfigService = new AppConfigService()) {}
+  constructor(private readonly appConfig: AppConfigService = new AppConfigService()) { }
 
   createHttpOptions(): HttpModuleOptions {
     const configSource = this.appConfig;
@@ -124,13 +125,13 @@ class ApiConfigService implements HttpModuleOptionsFactory {
   providers: [AppConfigService, ConstantsService],
   exports: [AppConfigService, ConstantsService],
 })
-class ConfigModule {}
+class ConfigModule { }
 
 @Module({
   providers: [ConstantsService],
   exports: [ConstantsService],
 })
-class ConstantsModule {}
+class ConstantsModule { }
 
 describe('getHttpModule Integration Tests with NestJS DI', () => {
   describe('Static configuration (register)', () => {
@@ -636,6 +637,104 @@ describe('getHttpModule Integration Tests with NestJS DI', () => {
 
       expect(axiosInstance).toBeDefined();
       expect(axiosInstance.defaults.baseURL).toBe('https://query.api.com');
+    });
+  });
+
+  describe('Host extraction from baseURL', () => {
+    afterEach(() => {
+      nock.cleanAll();
+    });
+
+    it('should extract correct host from baseURL when making requests with relative paths', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        imports: [
+          getHttpModule(
+            { provider: 'cgk-host-test' },
+            {
+              imports: [ConfigModule],
+              inject: [AppConfigService],
+              useClass: CgkApiConfigService,
+            },
+          ),
+          ConfigModule,
+        ],
+        providers: [CgkApiConfigService],
+      })
+        .overrideProvider(AppConfigService)
+        .useValue(new AppConfigService())
+        .compile();
+
+      const axiosInstance = module.get<AxiosInstance>('AXIOS_INSTANCE_TOKEN');
+
+      // Verify the instance has the correct baseURL
+      expect(axiosInstance.defaults.baseURL).toBe('https://api.cgk.com');
+
+      // Add a custom interceptor to capture the requestInfo that gets created
+      const capturedRequestInfo: { host?: string; url?: string } = {};
+
+      // Use response interceptor to capture metadata after request interceptor has run
+      axiosInstance.interceptors.response.use(response => {
+        // Capture the metadata from our wrapper that was added by request interceptor
+        const { metadata } = (response.config as { metadata?: { requestInfo?: { host?: string; url?: string } } });
+        if (metadata?.requestInfo) {
+          capturedRequestInfo.host = metadata.requestInfo.host;
+          capturedRequestInfo.url = metadata.requestInfo.url;
+        }
+        return response;
+      });
+
+      // Mock HTTP response using nock
+      nock('https://api.cgk.com')
+        .get('/test/endpoint')
+        .query({ x_cg_pro_api_key: 'cgk-api-key-321' })
+        .reply(200, { test: 'data' });
+
+      // Make a request with a relative path
+      await axiosInstance.get('/test/endpoint');
+
+      // Verify that the host was correctly extracted as 'api.cgk.com', NOT 'localhost'
+      expect(capturedRequestInfo.host).toBe('api.cgk.com');
+      expect(capturedRequestInfo.url).toBe('https://api.cgk.com/test/endpoint');
+    });
+
+    it('should extract correct host from baseURL in useFactory pattern', async () => {
+      const module: TestingModule = await Test.createTestingModule({
+        imports: [
+          getHttpModule(
+            { provider: 'factory-host-test' },
+            {
+              useFactory: async () => ({
+                baseURL: 'https://example.com',
+                timeout: 5000,
+              }),
+            },
+          ),
+        ],
+      }).compile();
+
+      const axiosInstance = module.get<AxiosInstance>('AXIOS_INSTANCE_TOKEN');
+
+      const capturedRequestInfo: { host?: string; url?: string } = {};
+
+      // Use response interceptor to capture metadata after request interceptor has run
+      axiosInstance.interceptors.response.use(response => {
+        const { metadata } = (response.config as { metadata?: { requestInfo?: { host?: string; url?: string } } });
+        if (metadata?.requestInfo) {
+          capturedRequestInfo.host = metadata.requestInfo.host;
+          capturedRequestInfo.url = metadata.requestInfo.url;
+        }
+        return response;
+      });
+
+      // Mock HTTP response using nock
+      nock('https://example.com')
+        .get('/api/data')
+        .reply(200, { success: true });
+
+      await axiosInstance.get('/api/data');
+
+      expect(capturedRequestInfo.host).toBe('example.com');
+      expect(capturedRequestInfo.url).toBe('https://example.com/api/data');
     });
   });
 });
