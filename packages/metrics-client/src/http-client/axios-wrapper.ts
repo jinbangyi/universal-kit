@@ -55,12 +55,32 @@ export class AxiosWrapper extends BaseHttpClient {
     let fullUrl = config.url ?? '';
     // Use config.baseURL if available, otherwise fall back to instance defaults
     const baseURL = config.baseURL ?? this.axiosInstance?.defaults?.baseURL;
-    if (baseURL) {
-      try {
-        fullUrl = new URL(fullUrl, baseURL).toString();
-      } catch {
-        this.logger.warn(`Failed to parse URL: ${fullUrl} with baseURL: ${baseURL}, using fallback parsing.`);
+
+    if (baseURL && fullUrl) {
+    // Rule 3: If url is absolute (http://, https://, or //), it overrides baseURL
+      if ((/^https?:\/\/|^\/\//).test(fullUrl)) {
+      // fullUrl is already absolute, use as-is
+      } else if (fullUrl.startsWith('/')) {
+      // If baseURL has a domain (http://, https://), extract domain and append url
+        if ((/^https?:\/\//).test(baseURL)) {
+          try {
+            const baseUrlObj = new URL(baseURL);
+            fullUrl = `${baseUrlObj.protocol}//${baseUrlObj.host}${fullUrl}`;
+          } catch {
+          // If parsing fails, url replaces baseURL entirely
+            this.logger.warn(`Failed to parse baseURL: ${baseURL}, using url as-is: ${fullUrl}`);
+          }
+        }
+      // If baseURL is just a path (no domain), url replaces it entirely
+      // fullUrl already starts with '/', so use it as-is
+      } else {
+      // Ensure baseURL ends with / for proper concatenation unless url would create double slash
+        const separator = baseURL.endsWith('/') ? '' : '/';
+        fullUrl = `${baseURL}${separator}${fullUrl}`;
       }
+    } else if (baseURL && !fullUrl) {
+      // Only baseURL exists
+      fullUrl = baseURL;
     }
 
     return {
@@ -273,6 +293,11 @@ export class AxiosWrapper extends BaseHttpClient {
   // Get underlying Axios instance for advanced usage
   getAxiosInstance(): AxiosInstance {
     return this.axiosInstance;
+  }
+
+  // Expose refreshOpenApiSpecs for manual refresh
+  override async refreshOpenApiSpecs(): Promise<void> {
+    return super.refreshOpenApiSpecs();
   }
 }
 

@@ -13,6 +13,7 @@ npm install @universal-kit/metrics-client axios
 - ✅ **OpenTelemetry Integration**: Full OpenTelemetry metrics and tracing support
 - ✅ **API Provider Monitoring**: Measure latency and success rates per provider
 - ✅ **API Key Usage Tracking**: Track usage by provider, API key, path, and status
+- ✅ **Path Normalization**: Automatically normalize dynamic path segments to reduce metric cardinality
 - ✅ **Enhanced Request Tracing**: Detailed request events and span tracking
 - ✅ **Failed Request Analysis**: Comprehensive logging and tracing of failed requests
 - ✅ **Axios Compatibility**: Drop-in replacement for existing Axios code
@@ -58,7 +59,10 @@ try {
 ### AxiosWrapper (Axios-compatible)
 
 ```typescript
-import { AxiosWrapper, AxiosWrapperRequestConfig } from '@universal-kit/metrics-client';
+import {
+  AxiosWrapper,
+  AxiosWrapperRequestConfig,
+} from '@universal-kit/metrics-client';
 
 const config: AxiosWrapperRequestConfig = {
   provider: 'payment-provider',
@@ -92,7 +96,7 @@ try {
 // Custom API key extraction from headers
 const customAxios = new AxiosWrapper({
   provider: 'custom-api',
-  getApiKey: (config) => {
+  getApiKey: config => {
     // Custom logic to extract API key from headers or config
     return config.headers?.['custom-auth-key'] || 'default-key';
   },
@@ -137,13 +141,134 @@ axiosInstance.interceptors.request.use(config => {
 });
 ```
 
+### Path Normalization
+
+Path normalization automatically converts dynamic path segments (IDs, UUIDs, hashes, addresses) into parameterized templates to prevent unbounded metric cardinality. This is crucial for maintaining efficient metrics storage and query performance.
+
+#### Basic Pattern-Based Normalization
+
+```typescript
+import { AxiosWrapper } from '@universal-kit/metrics-client';
+
+const client = new AxiosWrapper({
+  provider: 'my-api',
+  pathNormalization: {
+    enabled: true,
+  },
+});
+
+// Automatic normalization examples:
+// /users/12345/orders/67890          → /users/:path1/orders/:path2
+// /orders/550e8400-e29b-41d4-...     → /orders/:path1
+// /api/v1/health                     → /api/v1/health (preserved)
+```
+
+#### Crypto-Specific Pattern Detection
+
+Enable crypto-specific patterns to detect blockchain addresses and transaction hashes:
+
+```typescript
+const client = new AxiosWrapper({
+  provider: 'blockchain-api',
+  pathNormalization: {
+    enabled: true,
+    enableCryptoPatterns: true, // Detect Solana, Ethereum addresses, etc.
+  },
+});
+
+// Normalization examples with crypto patterns:
+// /defi/quotation/v1/smartmoney/sol/walletNew/L43t5u52tHCFG...
+//   → /defi/quotation/v1/smartmoney/sol/walletNew/:path1
+//
+// /api/v1/wallet_stat/base/0x799f27d36fa00edae8663e7fee25e839331645a8/7d
+//   → /api/v1/wallet_stat/base/:path1/7d
+```
+
+#### OpenAPI Spec-Based Normalization
+
+Use OpenAPI specifications for accurate path normalization with preserved parameter names:
+
+```typescript
+const client = new AxiosWrapper({
+  provider: 'my-api',
+  pathNormalization: {
+    enabled: true,
+    openApiSpecs: [
+      {
+        path: './openapi.json', // Load from file
+        domain: 'api.example.com',
+      },
+      {
+        url: 'https://api.other.com/openapi.yaml', // Load from URL
+        domain: 'api.other.com',
+      },
+    ],
+  },
+});
+
+// With OpenAPI spec defining /users/{userId}/orders/{orderId}:
+// /users/12345/orders/67890  → /users/:userId/orders/:orderId (preserved names)
+//
+// Without matching spec:
+// /products/abc123           → /products/:path1 (generic fallback)
+```
+
+#### Manual Spec Refresh
+
+Refresh OpenAPI specs at runtime (useful for dynamic spec updates):
+
+```typescript
+const client = new AxiosWrapper({
+  provider: 'my-api',
+  pathNormalization: {
+    enabled: true,
+    openApiSpecs: [{ path: './openapi.json', domain: 'api.example.com' }],
+  },
+});
+
+// Later, refresh specs (e.g., after deployment)
+await client.refreshOpenApiSpecs();
+```
+
+#### Supported Pattern Types
+
+Pattern-based normalization detects:
+
+- **UUIDs**: `550e8400-e29b-41d4-a716-446655440000` → `:path1`
+- **Numeric IDs**: `12345` → `:path2`
+- **Base58**: Solana addresses, Bitcoin addresses → `:path3`
+- **Hex Hashes**: `0xabcdef123456...` → `:path4`
+- **MongoDB ObjectIds**: `507f1f77bcf86cd799439011` → `:path5`
+- **Ethereum Addresses** (with `enableCryptoPatterns`): `0x742d35Cc6634C0532925a3b844Bc9e7595f0bEb`
+- **Transaction Hashes** (with `enableCryptoPatterns`): `0x8a8eafb1cf62...`
+
+#### Migration Guide
+
+Enabling path normalization changes the `path` label in metrics. To migrate:
+
+1. **Enable for new deployments first**:
+
+   ```typescript
+   pathNormalization: {
+     enabled: true;
+   }
+   ```
+
+2. **Monitor metric cardinality** before/after to validate improvements
+
+3. **Update dashboards** to use normalized paths:
+   - Old: `path="/users/12345/orders/67890"`
+   - New: `path="/users/:path1/orders/:path2"`
+
+4. **Use OpenAPI specs** for accurate parameter names in production
+
 ### API Provider Monitoring
 
 ```typescript
 import {
   NodeFetchWrapper,
   AxiosWrapper,
-  ProviderMetricsManager
+  ProviderMetricsManager,
 } from '@universal-kit/metrics-client';
 
 // Create client with provider monitoring
@@ -151,7 +276,7 @@ const client = new AxiosWrapper({
   provider: 'payment-api',
   apiKey: 'your-api-key',
   baseURL: 'https://api.example.com',
-  enableMetrics: true
+  enableMetrics: true,
 });
 
 // Get provider metrics manager
@@ -178,6 +303,7 @@ console.log('Total requests:', metricsManager.getProviderRequestCount());
 ```
 
 Available provider-level metrics:
+
 - Request count per provider
 - Success rate calculation
 - Error rate tracking
@@ -230,6 +356,16 @@ interface BaseWrapperConfig {
   getApiKey?: (config: any) => string;
   traceFailedRequests?: boolean;
   logRequestEvents?: boolean;
+  redactedHeaders?: string[]; // Headers to redact in logs and traces
+  pathNormalization?: {
+    enabled: boolean;
+    openApiSpecs?: Array<{
+      path?: string; // File path to OpenAPI spec
+      url?: string; // URL to OpenAPI spec
+      domain: string; // Domain to match for this spec
+    }>;
+    enableCryptoPatterns?: boolean; // Detect crypto addresses/hashes
+  };
 }
 
 interface AxiosWrapperRequestConfig extends BaseWrapperConfig {
@@ -290,6 +426,7 @@ new AxiosWrapper(config?: BaseWrapperConfig, logger?: Logger)
 - `getAxiosInstance()` - Get underlying Axios instance
 - `getProviderMetricsManager()` - Get provider metrics manager
 - `getRequestTracer()` - Get request tracer
+- `refreshOpenApiSpecs()` - Manually refresh OpenAPI specifications for path normalization
 
 ### ProviderMetricsManager
 
@@ -331,20 +468,23 @@ import { Logger } from '@universal-kit/logger';
 // Initialize logger
 const logger = new Logger({
   level: 'info',
-  service: 'my-service'
+  service: 'my-service',
 });
 
 // Create HTTP client with provider monitoring
-const httpClient = new AxiosWrapper({
-  provider: 'payment-provider',
-  apiKey: process.env.PAYMENT_API_KEY,
-  apiKeyHeader: 'x-api-key',
-  baseURL: 'https://api.payment-provider.com',
-  timeout: 10000,
-  traceFailedRequests: true,
-  logRequestEvents: true,
-  enableMetrics: true
-}, logger);
+const httpClient = new AxiosWrapper(
+  {
+    provider: 'payment-provider',
+    apiKey: process.env.PAYMENT_API_KEY,
+    apiKeyHeader: 'x-api-key',
+    baseURL: 'https://api.payment-provider.com',
+    timeout: 10000,
+    traceFailedRequests: true,
+    logRequestEvents: true,
+    enableMetrics: true,
+  },
+  logger
+);
 
 // Use in your application
 export { httpClient };

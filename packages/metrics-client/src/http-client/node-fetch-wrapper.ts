@@ -164,4 +164,9 @@ export class NodeFetchWrapper extends BaseHttpClient {
       this.makeRequest(method, url, options),
     );
   }
+
+  // Expose refreshOpenApiSpecs for manual refresh
+  override async refreshOpenApiSpecs(): Promise<void> {
+    return super.refreshOpenApiSpecs();
+  }
 }

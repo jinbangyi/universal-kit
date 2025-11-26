@@ -3,7 +3,9 @@ import { Span } from '@opentelemetry/api';
 
 import { ProviderMetricsManager } from '../metrics/api-provider-metrics.js';
 import { RequestTracer, type RequestTraceConfig } from '../tracing/api-provider-tracing.js';
-import type { AxiosRequestMetadata, ErrorContext, RequestInfo, ResponseInfo } from '../typing.js';
+import type {
+  AxiosRequestMetadata, ErrorContext, RequestInfo, ResponseInfo, PathNormalizationConfig,
+} from '../typing.js';
 
 interface RequestStartObject {
   span: Span | null;
@@ -34,6 +36,7 @@ export interface BaseWrapperConfig {
   traceFailedRequests?: boolean; // Default: true
   logRequestEvents?: boolean; // Default: true
   redactedHeaders?: string[]; // Headers to redact in logs and traces
+  pathNormalization?: PathNormalizationConfig; // Path normalization configuration
 }
 
 export const defaultApiKey = 'NOT_FOUND_API_KEY';
@@ -53,6 +56,29 @@ const defaultRedactedHeaders = [
   'OK-ACCESS-PASSPHRASE',
 ].map(header => header.toLowerCase());
 
+// Resolve path to openapi-specs relative to this source file
+// In development: src/http-client/common.ts -> src/openapi-specs/
+// In production: dist/http-client/common.js -> src/openapi-specs/ (need to go up to package root)
+export const getOpenApiSpecPath = (filename: string): string => {
+  if (typeof __dirname !== 'undefined') {
+    // CommonJS or bundled environment
+    // Try both src and dist locations
+    const path = require('path');
+    // First try: assume we're in dist/http-client, go to src/openapi-specs
+    const srcPath = path.resolve(__dirname, `../../src/openapi-specs/${filename}`);
+    try {
+      const fs = require('fs');
+      if (fs.existsSync(srcPath)) return srcPath;
+    } catch {
+      // Ignore and try next
+    }
+    // Second try: assume we're in src/http-client, go to src/openapi-specs
+    return path.resolve(__dirname, `../openapi-specs/${filename}`);
+  }
+  // ESM environment - use relative path from src/http-client to src/openapi-specs
+  return `../openapi-specs/${filename}`;
+};
+
 /**
  * processRequestStart -- ok    -> processRequestComplete -- finish -> processRequestEnd
  *                     -- error -> processRequestError    -- finish -> processRequestEnd
@@ -62,6 +88,10 @@ export abstract class BaseHttpClient {
   protected logger: Logger;
   protected providerMetrics: ProviderMetricsManager;
   protected requestTracer: RequestTracer;
+
+  // Path normalization caches
+  private openApiRoutesByDomain: Map<string, Map<string, string>> = new Map();
+  private compiledPatterns: Map<string, RegExp> | null = null;
 
   constructor(config: BaseWrapperConfig, logger?: Logger) {
     this.config = {
@@ -75,6 +105,13 @@ export abstract class BaseHttpClient {
       traceFailedRequests: true,
       logRequestEvents: true,
       redactedHeaders: defaultRedactedHeaders,
+      pathNormalization: {
+        enabled: true,
+        enableCryptoPatterns: true,
+        openApiSpecs: [
+          { path: getOpenApiSpecPath('coingecko-pro.json'), domain: 'pro-api.coingecko.com' },
+        ],
+      },
       ...config,
     };
 
@@ -88,6 +125,13 @@ export abstract class BaseHttpClient {
       logRequestEvents: this.config.logRequestEvents,
     };
     this.requestTracer = new RequestTracer(traceConfig, this.logger);
+
+    // Initialize OpenAPI specs if path normalization is enabled (async, non-blocking)
+    if (this.config.pathNormalization.enabled) {
+      this.loadOpenApiSpecs().catch((error) => {
+        this.logger.warn(`Failed to initialize OpenAPI specs: ${error?.message ?? error}`);
+      });
+    }
   }
 
   // Common utility methods
@@ -230,6 +274,225 @@ export abstract class BaseHttpClient {
     }
   }
 
+  /**
+   * Load and parse OpenAPI specifications
+   * Logs warnings on errors and continues with pattern-based normalization
+   */
+  private async loadOpenApiSpecs(): Promise<void> {
+    if (!this.config.pathNormalization.openApiSpecs) return;
+
+    for (const specConfig of this.config.pathNormalization.openApiSpecs) {
+      try {
+        let specContent: string;
+
+        if (specConfig.path) {
+          // Load from file - use require in Jest environment, dynamic import otherwise
+          try {
+            // Try dynamic import first (for ESM)
+            const fs = await import('fs/promises');
+            specContent = await fs.readFile(specConfig.path, 'utf-8');
+          } catch {
+            // Fallback to require for Jest/CJS environment
+            const fs = require('fs');
+            specContent = fs.readFileSync(specConfig.path, 'utf-8');
+          }
+        } else if (specConfig.url) {
+          // Load from URL
+          const response = await fetch(specConfig.url);
+          if (!response.ok) {
+            throw new Error(`Failed to fetch spec from ${specConfig.url}: ${response.status}`);
+          }
+          specContent = await response.text();
+        } else {
+          this.logger.warn(`OpenAPI spec config missing both path and url for domain ${specConfig.domain}`);
+          continue;
+        }
+
+        // Parse spec (JSON or YAML)
+        const spec = await this.parseOpenApiSpec(specContent, specConfig);
+        if (spec) {
+          this.openApiRoutesByDomain.set(specConfig.domain, spec);
+          this.logger.info(`Loaded OpenAPI spec for domain: ${specConfig.domain} (${spec.size} routes)`);
+        }
+      } catch (error: unknown) {
+        const errorMsg = error instanceof Error ? error.message : String(error);
+        this.logger.warn(`Failed to load OpenAPI spec for domain ${specConfig.domain}: ${errorMsg}`);
+        // Continue with pattern-based normalization for this domain
+      }
+    }
+  }
+
+  /**
+   * Parse OpenAPI spec and extract route templates
+   */
+  private async parseOpenApiSpec(content: string, specConfig: { domain: string }): Promise<Map<string, string> | null> {
+    try {
+      let spec: { openapi?: string; paths?: Record<string, unknown>; servers?: Array<{ url: string }> };
+
+      // Try parsing as JSON first
+      try {
+        spec = JSON.parse(content);
+      } catch {
+        // Try YAML parsing - optional dependency
+        try {
+          const yaml = require('yaml');
+          spec = yaml.parse(content);
+        // eslint-disable-next-line no-unused-vars, @typescript-eslint/no-unused-vars
+        } catch (yamlError) {
+          this.logger.warn(`Failed to parse spec for ${specConfig.domain}: not valid JSON or YAML`);
+          return null;
+        }
+      }
+
+      // Basic validation
+      if (!spec.openapi || !spec.paths) {
+        this.logger.warn(`Invalid OpenAPI spec for ${specConfig.domain}: missing openapi or paths`);
+        return null;
+      }
+
+      // Extract base path from server URL if present
+      let basePath = '';
+      if (spec.servers && spec.servers.length > 0 && spec.servers[0]) {
+        try {
+          const serverUrl = new URL(spec.servers[0].url);
+          basePath = serverUrl.pathname !== '/' ? serverUrl.pathname : '';
+        } catch {
+          // Invalid URL, use empty base path
+        }
+      }
+
+      // Extract and normalize paths
+      const routeMap = new Map<string, string>();
+      // eslint-disable-next-line no-unused-vars
+      for (const [path, _] of Object.entries(spec.paths)) {
+        // Prepend base path and convert OpenAPI parameter format {paramName} to :paramName
+        const fullPath = basePath + path;
+        const normalizedPath = fullPath.replace(/\{([^}]+)\}/g, ':$1');
+        routeMap.set(fullPath, normalizedPath);
+        // Also store the normalized version for matching
+        routeMap.set(normalizedPath, normalizedPath);
+      }
+
+      return routeMap;
+    } catch (error: unknown) {
+      const errorMsg = error instanceof Error ? error.message : String(error);
+      this.logger.warn(`Error parsing OpenAPI spec for ${specConfig.domain}: ${errorMsg}`);
+      return null;
+    }
+  }
+
+  /**
+   * Refresh OpenAPI specs from their sources
+   */
+  public async refreshOpenApiSpecs(): Promise<void> {
+    this.openApiRoutesByDomain.clear();
+    await this.loadOpenApiSpecs();
+  }
+
+  /**
+   * Lazy-initialize pattern regex cache
+   */
+  private getCompiledPatterns(): Map<string, RegExp> {
+    if (this.compiledPatterns) return this.compiledPatterns;
+
+    this.compiledPatterns = new Map([
+      // UUID pattern (v4 and v5)
+      ['uuid', /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i],
+      // Base58 (typical for crypto addresses, 32-44 chars)
+      ['base58', /^[1-9A-HJ-NP-Za-km-z]{32,44}$/],
+      // Hex hash (32, 40, 64 chars for various hash types)
+      ['hex', /^(0x)?[0-9a-f]{32,64}$/i],
+      // MongoDB ObjectId
+      ['objectid', /^[0-9a-f]{24}$/i],
+    ]);
+
+    return this.compiledPatterns;
+  }
+
+  /**
+   * Match path against OpenAPI spec routes
+   */
+  private matchOpenApiRoute(pathname: string, domain: string): string | null {
+    const routeMap = this.openApiRoutesByDomain.get(domain);
+    if (!routeMap) return null;
+
+    // Direct match
+    if (routeMap.has(pathname)) {
+      const route = routeMap.get(pathname);
+      return route ?? null;
+    }
+
+    // Try to match by segments
+    const pathSegments = pathname.split('/');
+    for (const [specPath, normalizedPath] of routeMap) {
+      const specSegments = specPath.split('/');
+      if (specSegments.length !== pathSegments.length) continue;
+
+      let matches = true;
+      for (let i = 0; i < specSegments.length; i++) {
+        const specSeg = specSegments[i];
+        const pathSeg = pathSegments[i];
+
+        // Skip if both are empty (leading slash)
+        if (!specSeg && !pathSeg) continue;
+
+        // Match if spec segment is a parameter or exact match
+        if (specSeg && (specSeg.startsWith(':') || specSeg.startsWith('{') || specSeg === pathSeg)) {
+          continue;
+        }
+
+        matches = false;
+        break;
+      }
+
+      if (matches) return normalizedPath;
+    }
+
+    return null;
+  }
+
+  /**
+   * Normalize path with OpenAPI-first priority, fallback to pattern-based
+   */
+  protected normalizePath(pathname: string, host: string): string {
+    if (!this.config.pathNormalization.enabled) return pathname;
+
+    // Try OpenAPI spec matching first
+    const openApiNormalized = this.matchOpenApiRoute(pathname, host);
+    if (openApiNormalized) return openApiNormalized;
+
+    // Fallback to pattern-based normalization (synchronous approximation)
+    // We'll make this sync to avoid async in createRequestInfo
+    const segments = pathname.split('/');
+    const patterns = this.getCompiledPatterns();
+    let pathCounter = 1;
+
+    const normalizedSegments = segments.map((segment) => {
+      if (!segment || segment.startsWith(':')) return segment;
+
+      // Inline crypto patterns if enabled
+      if (this.config.pathNormalization.enableCryptoPatterns) {
+        // Ethereum address
+        if ((/^0x[0-9a-f]{40}$/i).test(segment)) return `:path${pathCounter++}`;
+        // Solana address
+        if ((/^[1-9A-HJ-NP-Za-km-z]{32,44}$/).test(segment)) return `:path${pathCounter++}`;
+        // Transaction hash
+        if ((/^0x[0-9a-f]{64}$/i).test(segment)) return `:path${pathCounter++}`;
+      }
+
+      // Try generic patterns
+      for (const pattern of patterns.values()) {
+        if (pattern.test(segment)) {
+          return `:path${pathCounter++}`;
+        }
+      }
+
+      return segment;
+    });
+
+    return normalizedSegments.join('/');
+  }
+
   protected parseUrl(url: string): { host: string; pathname: string; params: Record<string, string> } {
     try {
       // console.log('console.log: parseUrl called with url:', url);
@@ -281,6 +544,12 @@ export abstract class BaseHttpClient {
   ): RequestInfo {
     const requestId = this.generateRequestId();
     const { host, pathname, params } = this.parseUrl(config.url);
+
+    // Normalize path if enabled
+    const path = this.config.pathNormalization.enabled ?
+      this.normalizePath(pathname, host) :
+      pathname;
+
     // combine params read from URL and config.params
     if (config.params) {
       // Handle different types of params (URLSearchParams, plain object, etc.)
@@ -312,7 +581,7 @@ export abstract class BaseHttpClient {
       url: config.url,
       host,
       method,
-      path: pathname,
+      path,
       headers: sanitizedHeaders,
       params,
       body: config.body,

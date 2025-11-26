@@ -12,6 +12,7 @@
       }
     ]
   },
+  "description": "Deep-dive analysis of API request paths with optimized queries for high-cardinality scenarios. Note: histogram_quantile monotonicity warnings are informational - Prometheus automatically fixes histogram buckets for accuracy.",
   "editable": true,
   "fiscalYearStartMonth": 0,
   "graphTooltip": 0,
@@ -33,10 +34,12 @@
             "hideFrom": {
               "legend": false,
               "tooltip": false,
-              "vis": false
+              "vis": false,
+              "viz": false
             }
           },
-          "mappings": []
+          "mappings": [],
+          "unitScale": true
         },
         "overrides": []
       },
@@ -52,7 +55,10 @@
           "displayMode": "table",
           "placement": "right",
           "showLegend": true,
-          "values": ["value", "percent"]
+          "values": [
+            "value",
+            "percent"
+          ]
         },
         "pieType": "pie",
         "reduceOptions": {
@@ -73,13 +79,15 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (path) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", status_category=~\"$status_category\"}[$__rate_interval]))",
+          "editorMode": "code",
+          "expr": "topk($topk_limit, sum by (path) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", status_category=~\"$status_category\"}[$__rate_interval])) > $min_rate)",
           "interval": "",
           "legendFormat": "{{path}}",
+          "range": true,
           "refId": "A"
         }
       ],
-      "title": "Request Rate by Path",
+      "title": "Request Rate by Path (Top $topk_limit)",
       "type": "piechart"
     },
     {
@@ -93,6 +101,9 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
@@ -102,8 +113,10 @@
             "hideFrom": {
               "legend": false,
               "tooltip": false,
-              "vis": false
+              "vis": false,
+              "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 2,
             "pointSize": 5,
@@ -134,7 +147,8 @@
               }
             ]
           },
-          "unit": "ms"
+          "unit": "ms",
+          "unitScale": true
         },
         "overrides": [
           {
@@ -192,7 +206,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.50, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.50, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[5m])))",
           "interval": "",
           "legendFormat": "p50 - {{host}}",
           "refId": "A"
@@ -202,7 +216,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[5m])))",
           "interval": "",
           "legendFormat": "p95 - {{host}}",
           "refId": "B"
@@ -212,13 +226,13 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.99, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.99, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[5m])))",
           "interval": "",
           "legendFormat": "p99 - {{host}}",
           "refId": "C"
         }
       ],
-  "title": "Response Latency by Host (ms)",
+      "title": "Response Latency by Host (ms)",
       "type": "timeseries"
     },
     {
@@ -232,6 +246,9 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
@@ -241,8 +258,10 @@
             "hideFrom": {
               "legend": false,
               "tooltip": false,
-              "vis": false
+              "vis": false,
+              "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
@@ -273,7 +292,8 @@
               }
             ]
           },
-          "unit": "reqps"
+          "unit": "reqps",
+          "unitScale": true
         },
         "overrides": [
           {
@@ -345,13 +365,13 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (path, status_code) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]))",
+          "expr": "topk($topk_limit * 5, sum by (path, status_code) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) > $min_rate)",
           "interval": "",
           "legendFormat": "{{path}} - {{status_code}}",
           "refId": "A"
         }
       ],
-      "title": "Request Rate by Path & Status Code",
+      "title": "Request Rate by Path & Status Code (Top Series)",
       "type": "timeseries"
     },
     {
@@ -368,10 +388,12 @@
             "hideFrom": {
               "legend": false,
               "tooltip": false,
-              "vis": false
+              "vis": false,
+              "viz": false
             }
           },
-          "mappings": []
+          "mappings": [],
+          "unitScale": true
         },
         "overrides": []
       },
@@ -387,7 +409,10 @@
           "displayMode": "table",
           "placement": "right",
           "showLegend": true,
-          "values": ["value", "percent"]
+          "values": [
+            "value",
+            "percent"
+          ]
         },
         "pieType": "pie",
         "reduceOptions": {
@@ -428,6 +453,9 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
@@ -437,8 +465,10 @@
             "hideFrom": {
               "legend": false,
               "tooltip": false,
-              "vis": false
+              "vis": false,
+              "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
@@ -469,7 +499,8 @@
               }
             ]
           },
-          "unit": "bytes"
+          "unit": "bytes",
+          "unitScale": true
         },
         "overrides": []
       },
@@ -514,7 +545,7 @@
           "refId": "B"
         }
       ],
-  "title": "Average Request/Response Size by Host (bytes)",
+      "title": "Average Request/Response Size by Host (bytes)",
       "type": "timeseries"
     },
     {
@@ -528,6 +559,9 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
@@ -537,8 +571,10 @@
             "hideFrom": {
               "legend": false,
               "tooltip": false,
-              "vis": false
+              "vis": false,
+              "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 2,
             "pointSize": 5,
@@ -556,6 +592,8 @@
             }
           },
           "mappings": [],
+          "max": 100,
+          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -570,8 +608,7 @@
             ]
           },
           "unit": "percent",
-          "max": 100,
-          "min": 0
+          "unitScale": true
         },
         "overrides": []
       },
@@ -600,13 +637,13 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "(sum by (path) (rate(api_provider_successes_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) / sum by (path) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]))) * 100",
+          "expr": "topk($topk_limit,\n  (\n    sum by (path) (rate(api_provider_successes_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) \n    / \n    sum by (path) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]))\n  ) * 100\n  and\n  sum by (path) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) > $min_rate\n)",
           "interval": "",
           "legendFormat": "Success Rate - {{path}}",
           "refId": "A"
         }
       ],
-      "title": "Success Rate by Path (%)",
+      "title": "Success Rate by Path (%) - Top $topk_limit by Rate",
       "type": "timeseries"
     },
     {
@@ -620,6 +657,9 @@
             "mode": "palette-classic"
           },
           "custom": {
+            "axisBorderShow": false,
+            "axisCenteredZero": false,
+            "axisColorMode": "text",
             "axisLabel": "",
             "axisPlacement": "auto",
             "barAlignment": 0,
@@ -629,8 +669,10 @@
             "hideFrom": {
               "legend": false,
               "tooltip": false,
-              "vis": false
+              "vis": false,
+              "viz": false
             },
+            "insertNulls": false,
             "lineInterpolation": "linear",
             "lineWidth": 1,
             "pointSize": 5,
@@ -661,7 +703,8 @@
               }
             ]
           },
-          "unit": "short"
+          "unit": "short",
+          "unitScale": true
         },
         "overrides": [
           {
@@ -747,13 +790,13 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "sum by (path, method) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval]))",
+          "expr": "topk($topk_limit * 5, sum by (path, method) (rate(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}[$__rate_interval])) > $min_rate)",
           "interval": "",
           "legendFormat": "{{method}} - {{path}}",
           "refId": "A"
         }
       ],
-      "title": "Request Rate by HTTP Method & Path",
+      "title": "Request Rate by HTTP Method & Path (Top Series)",
       "type": "timeseries"
     },
     {
@@ -767,6 +810,8 @@
             "mode": "thresholds"
           },
           "mappings": [],
+          "max": 100,
+          "min": 0,
           "thresholds": {
             "mode": "absolute",
             "steps": [
@@ -785,8 +830,7 @@
             ]
           },
           "unit": "percent",
-          "max": 100,
-          "min": 0
+          "unitScale": true
         },
         "overrides": []
       },
@@ -798,6 +842,8 @@
       },
       "id": 8,
       "options": {
+        "minVizHeight": 75,
+        "minVizWidth": 75,
         "orientation": "auto",
         "reduceOptions": {
           "calcs": [
@@ -807,9 +853,10 @@
           "values": false
         },
         "showThresholdLabels": false,
-        "showThresholdMarkers": true
+        "showThresholdMarkers": true,
+        "sizing": "auto"
       },
-      "pluginVersion": "9.0.0",
+      "pluginVersion": "10.3.3",
       "targets": [
         {
           "datasource": {
@@ -835,6 +882,13 @@
           "color": {
             "mode": "thresholds"
           },
+          "custom": {
+            "align": "auto",
+            "cellOptions": {
+              "type": "auto"
+            },
+            "inspect": false
+          },
           "mappings": [],
           "thresholds": {
             "mode": "absolute",
@@ -848,7 +902,8 @@
                 "value": 80
               }
             ]
-          }
+          },
+          "unitScale": true
         },
         "overrides": [
           {
@@ -858,8 +913,11 @@
             },
             "properties": [
               {
-                "id": "custom.displayMode",
-                "value": "color-background"
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
               },
               {
                 "id": "thresholds",
@@ -894,8 +952,11 @@
             },
             "properties": [
               {
-                "id": "custom.displayMode",
-                "value": "color-background"
+                "id": "custom.cellOptions",
+                "value": {
+                  "mode": "gradient",
+                  "type": "color-background"
+                }
               },
               {
                 "id": "thresholds",
@@ -933,41 +994,18 @@
       },
       "id": 9,
       "options": {
-        "showHeader": true,
         "cellHeight": "sm",
         "footer": {
-          "show": false,
-          "reducer": ["sum"],
-          "countRows": false
-        }
-      },
-      "pluginVersion": "9.0.0",
-      "transformations": [
-        {
-          "id": "merge",
-          "options": {}
+          "countRows": false,
+          "fields": "",
+          "reducer": [
+            "sum"
+          ],
+          "show": false
         },
-        {
-          "id": "organize",
-          "options": {
-            "excludeByName": {
-              "Time": true
-            },
-            "indexByName": {
-              "host": 0,
-              "Value #A": 1,
-              "Value #B": 2,
-              "Value #C": 3
-            },
-            "renameByName": {
-              "host": "Host",
-              "Value #A": "Requests/sec",
-              "Value #B": "Latency (p95)",
-              "Value #C": "Success Rate"
-            }
-          }
-        }
-      ],
+        "showHeader": true
+      },
+      "pluginVersion": "10.3.3",
       "targets": [
         {
           "datasource": {
@@ -986,7 +1024,7 @@
             "type": "prometheus",
             "uid": "${DS_PROMETHEUS}"
           },
-          "expr": "histogram_quantile(0.95, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[$__rate_interval])))",
+          "expr": "histogram_quantile(0.95, sum by (le, host) (rate(api_provider_latency_ms_bucket{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"}[5m])))",
           "format": "table",
           "instant": true,
           "interval": "",
@@ -1006,13 +1044,38 @@
           "refId": "C"
         }
       ],
-  "title": "Host Performance Summary Table",
+      "title": "Host Performance Summary Table",
+      "transformations": [
+        {
+          "id": "merge",
+          "options": {}
+        },
+        {
+          "id": "organize",
+          "options": {
+            "excludeByName": {
+              "Time": true
+            },
+            "indexByName": {
+              "Value #A": 1,
+              "Value #B": 2,
+              "Value #C": 3,
+              "host": 0
+            },
+            "renameByName": {
+              "Value #A": "Requests/sec",
+              "Value #B": "Latency (p95)",
+              "Value #C": "Success Rate",
+              "host": "Host"
+            }
+          }
+        }
+      ],
       "type": "table"
     }
   ],
-  "refresh": "5s",
-  "schemaVersion": 36,
-  "style": "dark",
+  "refresh": "5m",
+  "schemaVersion": 39,
   "tags": [
     "universal-kit",
     "api-provider",
@@ -1025,8 +1088,8 @@
       {
         "current": {
           "selected": false,
-          "text": "Prometheus",
-          "value": "prometheus"
+          "text": "prometheus-biz",
+          "value": "P2CC81C907A1C80F1"
         },
         "hide": 0,
         "includeAll": false,
@@ -1035,6 +1098,7 @@
         "name": "DS_PROMETHEUS",
         "options": [],
         "query": "prometheus",
+        "queryValue": "",
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
@@ -1042,9 +1106,13 @@
       },
       {
         "current": {
-          "selected": false,
-          "text": "All",
-          "value": "$__all"
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
         "datasource": {
           "type": "prometheus",
@@ -1069,9 +1137,13 @@
       },
       {
         "current": {
-          "selected": false,
-          "text": "All",
-          "value": "$__all"
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
         "datasource": {
           "type": "prometheus",
@@ -1096,9 +1168,13 @@
       },
       {
         "current": {
-          "selected": false,
-          "text": "All",
-          "value": "$__all"
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
         "datasource": {
           "type": "prometheus",
@@ -1123,9 +1199,13 @@
       },
       {
         "current": {
-          "selected": false,
-          "text": "All",
-          "value": "$__all"
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
         "datasource": {
           "type": "prometheus",
@@ -1150,9 +1230,13 @@
       },
       {
         "current": {
-          "selected": false,
-          "text": "All",
-          "value": "$__all"
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
         "datasource": {
           "type": "prometheus",
@@ -1177,15 +1261,19 @@
       },
       {
         "current": {
-          "selected": false,
-          "text": "All",
-          "value": "$__all"
+          "selected": true,
+          "text": [
+            "All"
+          ],
+          "value": [
+            "$__all"
+          ]
         },
         "datasource": {
           "type": "prometheus",
           "uid": "${DS_PROMETHEUS}"
         },
-        "definition": "label_values(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}, status_category)",
+        "definition": "label_values(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"},status_category)",
         "hide": 0,
         "includeAll": true,
         "label": "Status Category",
@@ -1193,25 +1281,117 @@
         "name": "status_category",
         "options": [],
         "query": {
-          "query": "label_values(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\", path=~\"$path\"}, status_category)",
-          "refId": "StandardVariableQuery"
+          "qryType": 1,
+          "query": "label_values(api_provider_requests_total{service_name=~\"$service_name\", provider=~\"$provider\", api_key=~\"$api_key\", host=~\"$host\"},status_category)",
+          "refId": "PrometheusVariableQueryEditor-VariableQuery"
         },
         "refresh": 1,
         "regex": "",
         "skipUrlSync": false,
         "sort": 1,
         "type": "query"
+      },
+      {
+        "current": {
+          "selected": false,
+          "text": "10",
+          "value": "10"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Top K Paths Limit",
+        "multi": false,
+        "name": "topk_limit",
+        "options": [
+          {
+            "selected": false,
+            "text": "5",
+            "value": "5"
+          },
+          {
+            "selected": true,
+            "text": "10",
+            "value": "10"
+          },
+          {
+            "selected": false,
+            "text": "15",
+            "value": "15"
+          },
+          {
+            "selected": false,
+            "text": "20",
+            "value": "20"
+          },
+          {
+            "selected": false,
+            "text": "30",
+            "value": "30"
+          },
+          {
+            "selected": false,
+            "text": "50",
+            "value": "50"
+          }
+        ],
+        "query": "5,10,15,20,30,50",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
+      },
+      {
+        "current": {
+          "selected": true,
+          "text": "0.06",
+          "value": "0.06"
+        },
+        "hide": 0,
+        "includeAll": false,
+        "label": "Min Request Rate (req/s)",
+        "multi": false,
+        "name": "min_rate",
+        "options": [
+          {
+            "selected": false,
+            "text": "0.001",
+            "value": "0.001"
+          },
+          {
+            "selected": false,
+            "text": "0.01",
+            "value": "0.01"
+          },
+          {
+            "selected": true,
+            "text": "0.06",
+            "value": "0.06"
+          },
+          {
+            "selected": false,
+            "text": "0.1",
+            "value": "0.1"
+          },
+          {
+            "selected": false,
+            "text": "1",
+            "value": "1"
+          }
+        ],
+        "query": "0.001,0.01,0.06,0.1,1",
+        "queryValue": "",
+        "skipUrlSync": false,
+        "type": "custom"
       }
     ]
   },
   "time": {
-    "from": "now-1h",
+    "from": "now-24h",
     "to": "now"
   },
   "timepicker": {},
   "timezone": "",
   "title": "Universal Kit API Request Path Analysis",
   "uid": "universal-kit-api-request-path-analysis",
-  "version": 1,
+  "version": 24,
   "weekStart": ""
 }

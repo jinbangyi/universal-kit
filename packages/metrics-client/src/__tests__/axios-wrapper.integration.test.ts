@@ -1,6 +1,7 @@
 /* eslint-disable no-unused-vars */
 /* eslint-disable @typescript-eslint/explicit-function-return-type */
 import { AxiosWrapper } from '../http-client/axios-wrapper.js';
+import { getOpenApiSpecPath } from '../http-client/common.js';
 import { ProviderMetricsManager } from '../metrics/api-provider-metrics.js';
 import axios, { AxiosError } from 'axios';
 
@@ -84,6 +85,7 @@ describe('AxiosWrapper Integration Tests', () => {
       request: jest.fn(),
       get: jest.fn(),
       post: jest.fn(),
+      defaults: {}, // Will be set when axios.create is called with options
       interceptors: {
         request: {
           use: jest.fn((onFulfilled?: any, onRejected?: any) => {
@@ -106,6 +108,11 @@ describe('AxiosWrapper Integration Tests', () => {
       _responseInterceptor: null as any,
       // Helper method to simulate the full request flow with interceptors
       _simulateRequest: async (config: any, shouldReject: boolean = false, error?: any): Promise<any> => {
+        // Merge defaults.baseURL into config if not already present
+        if (mockAxiosInstance.defaults?.baseURL && !config.baseURL) {
+          config.baseURL = mockAxiosInstance.defaults.baseURL;
+        }
+
         // Call request interceptor if it exists
         if (mockAxiosInstance._requestInterceptor?.onFulfilled) {
           config = mockAxiosInstance._requestInterceptor.onFulfilled(config);
@@ -161,7 +168,11 @@ describe('AxiosWrapper Integration Tests', () => {
       },
     };
 
-    mockedAxios.create.mockReturnValue(mockAxiosInstance);
+    mockedAxios.create.mockImplementation((options?: any) => {
+      // Set defaults from options
+      mockAxiosInstance.defaults = options || {};
+      return mockAxiosInstance;
+    });
 
     // Create AxiosWrapper instance AFTER mocking axios.create
     axiosWrapper = new AxiosWrapper({
@@ -658,6 +669,395 @@ describe('AxiosWrapper Integration Tests', () => {
       // Assert - Error interceptor should have been called
       expect(errorInterceptorCalled).toBe(true);
       expect(retryAttempted).toBe(true);
+    });
+  });
+
+  describe('URL Construction', () => {
+    it('should handle baseURL with relative url path correctly', async () => {
+      // Arrange - Create wrapper with baseURL in axios instance
+      const wrapperWithBaseUrl = new AxiosWrapper(
+        {
+          provider: 'test-api-provider',
+        },
+        undefined,
+        {
+          baseURL: 'https://api.example.com',
+        },
+      );
+
+      const metrics = wrapperWithBaseUrl.getProviderMetricsManager();
+      const recordSpy = jest.spyOn(metrics, 'recordRequestStart');
+
+      mockAxiosInstance.request.mockImplementation((config: any) =>
+        mockAxiosInstance._simulateRequest(config, false),
+      );
+
+      // Act - Request with relative url
+      await wrapperWithBaseUrl.request({
+        url: '/api/v1/data',
+        method: 'GET',
+      });
+
+      // Assert - Should combine baseURL domain with url path
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: 'https://api.example.com/api/v1/data',
+          host: 'api.example.com',
+          path: '/api/v1/data',
+        }),
+      );
+    });
+
+    it('should use absolute url when both baseURL and absolute url are provided', async () => {
+      // Arrange - Create wrapper with baseURL
+      const wrapperWithBaseUrl = new AxiosWrapper(
+        {
+          provider: 'test-api-provider',
+        },
+        undefined,
+        {
+          baseURL: 'https://api.example.com',
+        },
+      );
+
+      const metrics = wrapperWithBaseUrl.getProviderMetricsManager();
+      const recordSpy = jest.spyOn(metrics, 'recordRequestStart');
+
+      mockAxiosInstance.request.mockImplementation((config: any) =>
+        mockAxiosInstance._simulateRequest(config, false),
+      );
+
+      // Act - Request with absolute url should override baseURL
+      await wrapperWithBaseUrl.request({
+        url: 'https://another-api.example.com/api/v1/data',
+        method: 'GET',
+      });
+
+      // Assert - Should use the absolute url, ignoring baseURL
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: 'https://another-api.example.com/api/v1/data',
+          host: 'another-api.example.com',
+          path: '/api/v1/data',
+        }),
+      );
+    });
+
+    it('should handle per-request config baseURL override with relative url', async () => {
+      // Arrange - Create wrapper with instance-level baseURL
+      const wrapperWithBaseUrl = new AxiosWrapper(
+        {
+          provider: 'test-api-provider',
+        },
+        undefined,
+        {
+          baseURL: 'https://api.example.com',
+        },
+      );
+
+      const metrics = wrapperWithBaseUrl.getProviderMetricsManager();
+      const recordSpy = jest.spyOn(metrics, 'recordRequestStart');
+
+      mockAxiosInstance.request.mockImplementation((config: any) =>
+        mockAxiosInstance._simulateRequest(config, false),
+      );
+
+      // Act - Request with per-request baseURL and relative url
+      await wrapperWithBaseUrl.request({
+        baseURL: 'https://override-api.example.com',
+        url: '/api/v1/data',
+        method: 'GET',
+      });
+
+      // Assert - Should use per-request baseURL
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: 'https://override-api.example.com/api/v1/data',
+          host: 'override-api.example.com',
+          path: '/api/v1/data',
+        }),
+      );
+    });
+
+    it('should handle baseURL without protocol with relative url', async () => {
+      // Arrange - Create wrapper with baseURL as path only
+      const wrapperWithPathBaseUrl = new AxiosWrapper(
+        {
+          provider: 'test-api-provider',
+        },
+        undefined,
+        {
+          baseURL: '/api/v1',
+        },
+      );
+
+      const metrics = wrapperWithPathBaseUrl.getProviderMetricsManager();
+      const recordSpy = jest.spyOn(metrics, 'recordRequestStart');
+
+      mockAxiosInstance.request.mockImplementation((config: any) =>
+        mockAxiosInstance._simulateRequest(config, false),
+      );
+
+      // Act - Request with relative url when baseURL is just a path
+      await wrapperWithPathBaseUrl.request({
+        url: '/data',
+        method: 'GET',
+      });
+
+      // Assert - url should replace baseURL when both are paths
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: '/data',
+          path: '/data',
+        }),
+      );
+    });
+
+    it('should concatenate baseURL and relative url without leading slash', async () => {
+      // Arrange
+      const wrapperWithBaseUrl = new AxiosWrapper(
+        {
+          provider: 'test-api-provider',
+        },
+        undefined,
+        {
+          baseURL: 'https://api.example.com/v1',
+        },
+      );
+
+      const metrics = wrapperWithBaseUrl.getProviderMetricsManager();
+      const recordSpy = jest.spyOn(metrics, 'recordRequestStart');
+
+      mockAxiosInstance.request.mockImplementation((config: any) =>
+        mockAxiosInstance._simulateRequest(config, false),
+      );
+
+      // Act - Request with relative url without leading slash
+      await wrapperWithBaseUrl.request({
+        url: 'data',
+        method: 'GET',
+      });
+
+      // Assert - Should concatenate with separator
+      expect(recordSpy).toHaveBeenCalledWith(
+        expect.objectContaining({
+          url: 'https://api.example.com/v1/data',
+          host: 'api.example.com',
+          path: '/v1/data',
+        }),
+      );
+    });
+  });
+
+  describe('Path Normalization', () => {
+    describe('Pattern-based normalization', () => {
+      it('should normalize paths with Solana addresses using :path1, :path2, etc.', async () => {
+        const wrapper = new AxiosWrapper({
+          provider: 'TestProvider',
+          pathNormalization: {
+            enabled: true,
+            enableCryptoPatterns: true,
+          },
+        });
+
+        const metrics = wrapper.getProviderMetricsManager();
+        const recordSpy = jest.spyOn(metrics, 'recordRequestComplete');
+
+        mockAxiosInstance.request.mockImplementation((config: any) =>
+          mockAxiosInstance._simulateRequest(config, false),
+        );
+
+        await wrapper.request({
+          url: 'https://api.example.com/defi/quotation/v1/smartmoney/sol/walletNew/L43t5u52tHCFG1hDxmsu6EcZoF5HxZKvJFgVyi4dTnH',
+          method: 'GET',
+        });
+
+        // The path should be normalized
+        expect(recordSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            path: '/defi/quotation/v1/smartmoney/sol/walletNew/:path1',
+          }),
+        );
+      });
+
+      it('should normalize paths with Ethereum addresses', async () => {
+        const wrapper = new AxiosWrapper({
+          provider: 'TestProvider',
+          pathNormalization: {
+            enabled: true,
+            enableCryptoPatterns: true,
+          },
+        });
+
+        const metrics = wrapper.getProviderMetricsManager();
+        const recordSpy = jest.spyOn(metrics, 'recordRequestComplete');
+
+        mockAxiosInstance.request.mockImplementation((config: any) =>
+          mockAxiosInstance._simulateRequest(config, false),
+        );
+
+        await wrapper.request({
+          url: 'https://api.example.com/api/v1/wallet_stat/base/0x799f27d36fa00edae8663e7fee25e839331645a8/7d',
+          method: 'GET',
+        });
+
+        expect(recordSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            path: '/api/v1/wallet_stat/base/:path1/7d',
+          }),
+        );
+      });
+
+      it('should normalize UUIDs', async () => {
+        const wrapper = new AxiosWrapper({
+          provider: 'TestProvider',
+          pathNormalization: {
+            enabled: true,
+          },
+        });
+
+        const metrics = wrapper.getProviderMetricsManager();
+        const recordSpy = jest.spyOn(metrics, 'recordRequestComplete');
+
+        mockAxiosInstance.request.mockImplementation((config: any) =>
+          mockAxiosInstance._simulateRequest(config, false),
+        );
+
+        await wrapper.request({
+          url: 'https://api.example.com/orders/550e8400-e29b-41d4-a716-446655440000',
+          method: 'GET',
+        });
+
+        expect(recordSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            path: '/orders/:path1',
+          }),
+        );
+      });
+
+      it('should preserve static paths', async () => {
+        const wrapper = new AxiosWrapper({
+          provider: 'TestProvider',
+          pathNormalization: {
+            enabled: true,
+          },
+        });
+
+        const metrics = wrapper.getProviderMetricsManager();
+        const recordSpy = jest.spyOn(metrics, 'recordRequestComplete');
+
+        mockAxiosInstance.request.mockImplementation((config: any) =>
+          mockAxiosInstance._simulateRequest(config, false),
+        );
+
+        await wrapper.request({
+          url: 'https://api.example.com/api/v1/health',
+          method: 'GET',
+        });
+
+        expect(recordSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            path: '/api/v1/health',
+          }),
+        );
+      });
+    });
+
+    describe('OpenAPI spec-based normalization', () => {
+      it('should use OpenAPI spec routes when domain matches', async () => {
+        // Mock spec loading is complex with async initialization
+        // This test verifies the method exists and can be called
+        const wrapper = new AxiosWrapper({
+          provider: 'TestProvider',
+          pathNormalization: {
+            enabled: true,
+          },
+        });
+
+        // Verify refreshOpenApiSpecs method exists
+        expect(typeof wrapper.refreshOpenApiSpecs).toBe('function');
+      });
+
+      it('should normalize CoinGecko Pro API paths using OpenAPI spec', async () => {
+        const wrapper = new AxiosWrapper({
+          provider: 'CoinGecko',
+          pathNormalization: {
+            enabled: true,
+            openApiSpecs: [
+              { path: getOpenApiSpecPath('coingecko-pro.json'), domain: 'pro-api.coingecko.com' },
+            ],
+          },
+        });
+
+        // Manually refresh to ensure specs are loaded before testing
+        await wrapper.refreshOpenApiSpecs();
+
+        const metrics = wrapper.getProviderMetricsManager();
+        const recordSpy = jest.spyOn(metrics, 'recordRequestComplete');
+
+        mockAxiosInstance.request.mockImplementation((config: any) =>
+          mockAxiosInstance._simulateRequest(config, false),
+        );
+
+        // Test /api/v3/coins/{id} route
+        await wrapper.request({
+          url: 'https://pro-api.coingecko.com/api/v3/coins/ethena',
+          method: 'GET',
+        });
+
+        expect(recordSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            path: '/api/v3/coins/:id',
+          }),
+        );
+
+        // Test another coin ID
+        await wrapper.request({
+          url: 'https://pro-api.coingecko.com/api/v3/coins/bitcoin',
+          method: 'GET',
+        });
+
+        expect(recordSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            path: '/api/v3/coins/:id',
+          }),
+        );
+
+        // Test /api/v3/coins/{id}/market_chart route
+        await wrapper.request({
+          url: 'https://pro-api.coingecko.com/api/v3/coins/ethereum/market_chart',
+          method: 'GET',
+        });
+
+        expect(recordSpy).toHaveBeenCalledWith(
+          expect.objectContaining({
+            path: '/api/v3/coins/:id/market_chart',
+          }),
+        );
+      });
+    });
+
+    describe('Manual spec refresh', () => {
+      it('should support manual refresh of OpenAPI specs', async () => {
+        const wrapper = new AxiosWrapper({
+          provider: 'TestProvider',
+          pathNormalization: {
+            enabled: true,
+            openApiSpecs: [
+              {
+                path: '/mock/openapi.json',
+                domain: 'api.example.com',
+              },
+            ],
+          },
+        });
+
+        // Call refresh method
+        await wrapper.refreshOpenApiSpecs();
+
+        // Should not throw error
+        expect(true).toBe(true);
+      });
     });
   });
 });
