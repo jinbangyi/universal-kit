@@ -56,30 +56,34 @@ const defaultRedactedHeaders = [
   'OK-ACCESS-PASSPHRASE',
 ].map(header => header.toLowerCase());
 
-// Resolve path to openapi-specs relative to this source file
-// In development: src/http-client/common.ts -> src/openapi-specs/
-// In production: dist/http-client/common.js -> src/openapi-specs/ (need to go up to package root)
+// Resolve path to openapi-specs relative to this compiled file
+// The openapi-specs are copied to dist/openapi-specs during build (see tsup.config.ts)
+// When bundled by tsup:
+//   - dist/index.cjs -> dist/openapi-specs/ (same directory level)
+//   - dist/index.js -> dist/openapi-specs/ (same directory level)
+// When installed via npm:
+//   - node_modules/@universal-kit/metrics-client/dist/index.cjs
+//     -> node_modules/@universal-kit/metrics-client/dist/openapi-specs/
+// During development/tests (src/):
+//   - src/http-client/common.ts -> src/openapi-specs/ (up one level)
 export const getOpenApiSpecPath = (filename: string): string => {
-  if (typeof __dirname !== 'undefined') {
-    // CommonJS or bundled environment
-    // Try both src and dist locations
-    const path = require('path');
-    // First try: assume we're in dist/http-client, go to src/openapi-specs
-    const srcPath = path.resolve(__dirname, `../../src/openapi-specs/${filename}`);
-    try {
-      const fs = require('fs');
-      if (fs.existsSync(srcPath)) return srcPath;
-    } catch {
-      // Ignore and try next
-    }
-    // Second try: assume we're in src/http-client, go to src/openapi-specs
-    return path.resolve(__dirname, `../openapi-specs/${filename}`);
-  }
-  // ESM environment - use relative path from src/http-client to src/openapi-specs
-  return `../openapi-specs/${filename}`;
-};
+  const path = require('path');
 
-/**
+  if (typeof __dirname !== 'undefined') {
+    // Check if we're in development (src directory structure)
+    if (__dirname.includes('/src/http-client')) {
+      // During development: go up one level from http-client to src
+      return path.resolve(__dirname, `../openapi-specs/${filename}`);
+    }
+    // When code is bundled into dist/index.cjs or dist/index.js
+    // __dirname will be the dist/ directory, so openapi-specs/ is at the same level
+    return path.resolve(__dirname, `openapi-specs/${filename}`);
+  }
+
+  // Fallback: use current working directory
+  // This should rarely be hit since __dirname is typically available
+  return path.resolve(process.cwd(), `dist/openapi-specs/${filename}`);
+};/**
  * processRequestStart -- ok    -> processRequestComplete -- finish -> processRequestEnd
  *                     -- error -> processRequestError    -- finish -> processRequestEnd
  */
